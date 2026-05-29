@@ -1,42 +1,36 @@
-# 🔥 얼불춤 자동 매크로 (ADOFAI Auto Macro)
+# 얼불춤 자동 매크로 (ADOFAI Auto Macro)
 
-**A Dance of Fire and Ice** 게임 화면의 KPS(Keys Per Second) 표시를 OCR로 인식하여, 해당 속도에 맞춰 자동으로 키를 입력하는 매크로입니다.
+**A Dance of Fire and Ice** 게임의 `.adofai` 레벨 파일을 파싱하여, 각 타일의 정확한 타이밍에 맞춰 자동으로 키를 입력하는 매크로입니다.
 
 ---
 
+## 동작 원리
+
+1. `.adofai` 레벨 파일에서 **타일 각도(angleData/pathData)**, **BPM**, **SetSpeed**, **Twirl** 이벤트를 파싱
+2. 각 타일의 상대 각도를 계산하여 정확한 입력 타이밍(ms)을 산출
+3. 게임 내에서 계산된 타이밍에 맞춰 자동으로 키를 입력
+
+### 타이밍 계산 공식
+```
+상대 각도 = (다음타일각도 - 현재타일각도 + 540) % 360
+입력 간격(ms) = (1000 × 상대각도) / (3 × BPM)
+```
+
 ## 기능
 
-- **KPS 자동 인식**: 화면 오른쪽 상단의 KPS 표시를 실시간 OCR로 읽어냄
-- **자동 키 입력**: 인식된 KPS에 맞춰 정밀한 타이밍으로 키를 자동 입력
-- **상태 오버레이**: 현재 매크로 상태를 화면에 오버레이로 표시
-- **핫키 제어**: F6(시작/중지), F7(영역 재설정), F8(종료)
-- **설정 파일**: YAML 기반 설정으로 모든 옵션을 커스터마이즈 가능
+- **.adofai 파일 파싱**: angleData, pathData 모두 지원
+- **BPM 변경 지원**: SetSpeed 이벤트(Bpm / Multiplier) 자동 반영
+- **Twirl 지원**: 회전 방향 반전 자동 처리
+- **미드스핀 지원**: 미드스핀 타일 자동 처리
+- **정밀 타이밍**: busy-wait 기반 고정밀 키 입력
+- **카운트다운**: 시작 전 카운트다운으로 게임과 동기화
+- **상태 오버레이**: 현재 진행 상황을 화면에 표시
+- **핫키 제어**: F6(시작/중지), F8(종료)
 
 ## 요구 사항
 
 - Python 3.10 이상
-- Tesseract OCR 설치 필요
-
-### Tesseract 설치
-
-**Windows:**
-```bash
-# Chocolatey
-choco install tesseract
-
-# 또는 공식 설치 파일 다운로드:
-# https://github.com/UB-Mannheim/tesseract/wiki
-```
-
-**macOS:**
-```bash
-brew install tesseract
-```
-
-**Linux (Ubuntu/Debian):**
-```bash
-sudo apt-get install tesseract-ocr
-```
+- Windows (게임이 Windows에서 실행되므로)
 
 ## 설치
 
@@ -47,7 +41,7 @@ cd adofai-auto-macro
 
 # 가상 환경 생성 (권장)
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+.venv\Scripts\activate
 
 # 의존성 설치
 pip install -r requirements.txt
@@ -58,52 +52,56 @@ pip install -r requirements.txt
 ### 기본 실행
 
 ```bash
-python main.py
+# .adofai 파일 경로를 인자로 전달
+python main.py "C:\경로\레벨파일.adofai"
 ```
 
-### 캡처 영역 설정
-
-KPS가 정확히 인식되지 않으면, 캡처 영역을 수동으로 설정하세요:
+### 옵션
 
 ```bash
-python main.py --set-region
+# 입력 키 변경 (기본: space)
+python main.py level.adofai --key d
+
+# 시작 딜레이 추가 (ms)
+python main.py level.adofai --delay 200
+
+# 카운트다운 변경 (기본: 3초)
+python main.py level.adofai --countdown 5
+
+# 레벨 정보만 출력
+python main.py level.adofai --info
+
+# 오버레이 비활성화
+python main.py level.adofai --no-overlay
 ```
 
-### 사용자 설정 파일 사용
+### 실행 순서
 
-```bash
-python main.py --config my_config.yaml
-```
+1. 얼불춤 게임을 실행합니다
+2. 플레이할 레벨을 선택하고 시작 화면까지 진입합니다
+3. 매크로를 실행합니다: `python main.py "레벨파일.adofai"`
+4. 게임에서 레벨을 시작합니다
+5. **F6**을 눌러 매크로를 시작합니다 (3초 카운트다운 후 자동 입력 시작)
+6. **F6**을 다시 눌러 중지하거나, **F8**로 프로그램을 종료합니다
 
 ## 핫키
 
 | 키 | 기능 |
 |---|---|
 | **F6** | 매크로 시작/중지 토글 |
-| **F7** | 캡처 영역 재설정 |
 | **F8** | 프로그램 종료 |
 
-핫키는 `config.yaml`에서 변경 가능합니다.
+## 레벨 파일 위치
 
-## 설정 (config.yaml)
+얼불춤의 `.adofai` 레벨 파일은 보통 다음 경로에 있습니다:
 
-```yaml
-# 캡처 설정
-capture:
-  region: auto          # 자동 감지 또는 수동 좌표 설정
-  interval: 0.05        # 캡처 주기 (초)
+```
+C:\Program Files (x86)\Steam\steamapps\common\A Dance of Fire and Ice\
+```
 
-# 매크로 설정
-macro:
-  key: space            # 입력 키 (space, d, f, j, k)
-  min_kps: 0.5          # 최소 KPS 임계값
-  max_kps: 30.0         # 최대 KPS 제한
-
-# 핫키 설정
-hotkeys:
-  toggle: f6            # 매크로 토글
-  quit: f8              # 종료
-  reset_region: f7      # 영역 재설정
+또는 커스텀 레벨의 경우:
+```
+C:\Users\{사용자}\AppData\LocalLow\7th Beat Games\A Dance of Fire and Ice\CustomLevels\
 ```
 
 ## 프로젝트 구조
@@ -116,18 +114,21 @@ adofai-auto-macro/
 ├── README.md
 └── src/
     ├── __init__.py
-    ├── screen_capture.py  # 화면 캡처 모듈
-    ├── kps_reader.py      # KPS OCR 인식 모듈
-    ├── auto_player.py     # 자동 키 입력 모듈
-    └── overlay.py         # 상태 오버레이 모듈
+    ├── level_parser.py    # .adofai 파일 파서 (타이밍 계산)
+    ├── auto_player.py     # 타이밍 기반 자동 키 입력
+    └── overlay.py         # 상태 오버레이
 ```
+
+## 팁
+
+- **딜레이 조정**: 게임 시작과 매크로 시작 사이에 타이밍이 맞지 않으면 `--delay` 옵션으로 조정하세요
+- **카운트다운 활용**: 카운트다운 동안 게임에서 레벨을 시작하면 타이밍을 맞추기 쉽습니다
+- **레벨 정보 확인**: `--info` 옵션으로 먼저 레벨의 BPM, 타일 수, 길이를 확인하세요
 
 ## 주의 사항
 
 - 이 매크로는 **개인 연습 및 학습 목적**으로만 사용하세요.
 - 온라인 랭킹이나 경쟁 환경에서의 사용은 권장하지 않습니다.
-- KPS 인식 정확도는 게임 설정(해상도, 폰트 크기 등)에 따라 달라질 수 있습니다.
-- Tesseract OCR이 시스템에 설치되어 있어야 합니다.
 
 ## 라이선스
 

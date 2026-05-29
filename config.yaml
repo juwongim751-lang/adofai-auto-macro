@@ -3,30 +3,16 @@
 # A Dance of Fire and Ice - Auto Macro Config
 # ============================================
 
-# 캡처 설정
-capture:
-  # KPS 표시 영역 (화면 오른쪽 상단 기준)
-  # auto로 설정하면 자동 감지를 시도합니다.
-  # 수동 설정 예시:
-  #   left: 1620
-  #   top: 10
-  #   width: 280
-  #   height: 60
-  region: auto
-
-  # 캡처 주기 (초). 낮을수록 반응이 빠르지만 CPU 사용량 증가.
-  interval: 0.05
-
 # 매크로 설정
 macro:
   # 입력할 키: space, d, f, j, k
   key: space
 
-  # KPS 임계값: 이 값 이하면 키를 입력하지 않음
-  min_kps: 0.5
+  # 시작 카운트다운 (초)
+  countdown: 3
 
-  # 최대 KPS 제한
-  max_kps: 30.0
+  # 시작 딜레이 (ms) - 게임 로딩 시간에 맞춰 조정
+  start_delay: 0
 
 # 핫키 설정
 hotkeys:
@@ -35,14 +21,6 @@ hotkeys:
 
   # 프로그램 종료
   quit: f8
-
-  # 캡처 영역 재설정
-  reset_region: f7
-
-# OCR 설정
-ocr:
-  # Tesseract 경로 (비워두면 시스템 기본값 사용)
-  tesseract_cmd: ""
 
 # 오버레이 설정
 overlay:

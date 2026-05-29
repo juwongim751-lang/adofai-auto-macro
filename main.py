@@ -1,105 +1,60 @@
 """
 얼불춤(A Dance of Fire and Ice) 자동 매크로
-화면의 KPS 표시를 OCR로 읽어 자동으로 키를 입력합니다.
+.adofai 레벨 파일을 파싱하여 타일 타이밍에 맞춰 자동으로 키를 입력합니다.
 
 사용법:
-    python main.py                  # 기본 설정으로 실행
-    python main.py --config my.yaml # 사용자 설정 파일 사용
-    python main.py --set-region     # 캡처 영역 직접 설정 모드
+    python main.py level.adofai              # 레벨 파일 지정하여 실행
+    python main.py level.adofai --key d      # 입력 키를 d로 변경
+    python main.py level.adofai --delay 200  # 시작 딜레이 200ms 추가
+    python main.py --info level.adofai       # 레벨 정보만 출력
 """
 
 import argparse
 import sys
 import time
-import yaml
+import threading
 from pathlib import Path
 from pynput import keyboard
 
-from src.screen_capture import ScreenCapture
-from src.kps_reader import KPSReader
+from src.level_parser import parse_level, print_level_info, LevelData
 from src.auto_player import AutoPlayer
 from src.overlay import StatusOverlay
-
-
-def load_config(path: str = "config.yaml") -> dict:
-    """설정 파일을 로드합니다."""
-    config_path = Path(path)
-    if not config_path.exists():
-        print(f"[!] 설정 파일을 찾을 수 없습니다: {path}")
-        print("[*] 기본 설정으로 실행합니다.")
-        return {}
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-
-def region_setup_mode(capture: ScreenCapture):
-    """캡처 영역을 사용자가 직접 설정하는 모드."""
-    print("=" * 50)
-    print("  KPS 캡처 영역 설정 모드")
-    print("=" * 50)
-    print()
-    print("얼불춤을 실행한 상태에서 KPS가 표시되는 영역의 좌표를 입력하세요.")
-    print("화면 좌측 상단이 (0, 0)입니다.")
-    print()
-
-    try:
-        left = int(input("  X 좌표 (left): "))
-        top = int(input("  Y 좌표 (top): "))
-        width = int(input("  너비 (width): "))
-        height = int(input("  높이 (height): "))
-    except (ValueError, EOFError):
-        print("[!] 잘못된 입력입니다.")
-        return
-
-    capture.set_region(left, top, width, height)
-    print(f"\n[*] 캡처 영역 설정됨: ({left}, {top}, {width}x{height})")
-
-    # 테스트 캡처
-    img = capture.capture()
-    print(f"[*] 테스트 캡처 완료: {img.shape}")
 
 
 class MacroController:
     """매크로 전체 흐름을 제어하는 메인 컨트롤러."""
 
-    def __init__(self, config: dict):
-        self.config = config
-        self.running = False
-        self.macro_active = False
+    def __init__(
+        self,
+        level: LevelData,
+        key: str = "space",
+        start_delay: float = 0.0,
+        countdown: int = 3,
+        show_overlay: bool = True,
+        toggle_key: str = "f6",
+        quit_key: str = "f8",
+    ):
+        self.level = level
+        self.start_delay = start_delay
+        self.countdown = countdown
+        self.toggle_key = toggle_key
+        self.quit_key = quit_key
 
-        # 모듈 초기화
-        capture_cfg = config.get("capture", {})
-        macro_cfg = config.get("macro", {})
-        ocr_cfg = config.get("ocr", {})
-        hotkey_cfg = config.get("hotkeys", {})
+        self.player = AutoPlayer(key=key)
+        self.player.load_level(level)
+        self.player.set_progress_callback(self._on_progress)
 
-        # 캡처 영역 설정
-        region = capture_cfg.get("region", "auto")
-        self.capture = ScreenCapture(region=None if region == "auto" else region)
+        self.overlay = StatusOverlay() if show_overlay else None
+        self.running = True
+        self.macro_started = False
 
-        # OCR 리더
-        tesseract_cmd = ocr_cfg.get("tesseract_cmd", "") or None
-        self.reader = KPSReader(tesseract_cmd=tesseract_cmd)
-
-        # 자동 플레이어
-        self.player = AutoPlayer(
-            key=macro_cfg.get("key", "space"),
-            min_kps=macro_cfg.get("min_kps", 0.5),
-            max_kps=macro_cfg.get("max_kps", 30.0),
-        )
-
-        # 오버레이
-        overlay_cfg = config.get("overlay", {})
-        self.overlay = StatusOverlay() if overlay_cfg.get("enabled", True) else None
-
-        # 캡처 주기
-        self.capture_interval = capture_cfg.get("interval", 0.05)
-
-        # 핫키
-        self.toggle_key = hotkey_cfg.get("toggle", "f6")
-        self.quit_key = hotkey_cfg.get("quit", "f8")
-        self.reset_key = hotkey_cfg.get("reset_region", "f7")
+    def _on_progress(self, tile_index: int, total_tiles: int, time_ms: float):
+        """타일 진행 콜백."""
+        pct = (tile_index / total_tiles) * 100
+        status = f"타일 {tile_index}/{total_tiles} ({pct:.0f}%)"
+        print(f"\r  {status}    ", end="", flush=True)
+        if self.overlay:
+            self.overlay.update(status)
 
     def _on_key_press(self, key):
         """핫키 처리."""
@@ -112,23 +67,49 @@ class MacroController:
             self._toggle_macro()
         elif key_name == self.quit_key:
             self._quit()
-        elif key_name == self.reset_key:
-            region_setup_mode(self.capture)
 
     def _toggle_macro(self):
         """매크로 시작/중지 토글."""
-        if self.macro_active:
-            self.macro_active = False
+        if self.player.is_running:
             self.player.stop()
+            self.macro_started = False
             status = "[매크로 중지됨]"
+            print(f"\n{status}")
+            if self.overlay:
+                self.overlay.update(status)
         else:
-            self.macro_active = True
-            self.player.start()
-            status = "[매크로 활성화]"
+            self._start_with_countdown()
 
-        print(f"\n{status}")
-        if self.overlay:
-            self.overlay.update(status)
+    def _start_with_countdown(self):
+        """카운트다운 후 매크로를 시작합니다."""
+        def _countdown_and_start():
+            for i in range(self.countdown, 0, -1):
+                if not self.running:
+                    return
+                status = f"[{i}초 후 시작...]"
+                print(f"\r  {status}    ", end="", flush=True)
+                if self.overlay:
+                    self.overlay.update(status)
+                time.sleep(1)
+
+            if self.start_delay > 0:
+                status = f"[딜레이 {self.start_delay}ms...]"
+                print(f"\r  {status}    ", end="", flush=True)
+                if self.overlay:
+                    self.overlay.update(status)
+                time.sleep(self.start_delay / 1000.0)
+
+            if self.running:
+                self.macro_started = True
+                self.player.load_level(self.level)  # 처음부터 다시 시작
+                self.player.start()
+                status = "[매크로 실행 중]"
+                print(f"\n{status}")
+                if self.overlay:
+                    self.overlay.update(status)
+
+        t = threading.Thread(target=_countdown_and_start, daemon=True)
+        t.start()
 
     def _quit(self):
         """프로그램 종료."""
@@ -140,63 +121,37 @@ class MacroController:
 
     def run(self):
         """메인 루프."""
-        print("=" * 50)
+        print()
+        print("=" * 55)
         print("  얼불춤 자동 매크로 (ADOFAI Auto Macro)")
-        print("=" * 50)
-        print()
-        print(f"  [F6] 매크로 시작/중지  (현재 키: {self.toggle_key.upper()})")
-        print(f"  [F7] 캡처 영역 재설정  (현재 키: {self.reset_key.upper()})")
-        print(f"  [F8] 프로그램 종료      (현재 키: {self.quit_key.upper()})")
-        print()
-        print(f"  입력 키: {self.config.get('macro', {}).get('key', 'space')}")
-        print(f"  캡처 주기: {self.capture_interval}초")
-        print()
-        print("[*] 대기 중... F6을 눌러 매크로를 시작하세요.")
+        print("  .adofai 파일 기반 자동 플레이")
+        print("=" * 55)
         print()
 
-        # 오버레이 시작
+        print_level_info(self.level)
+        print()
+        print(f"  [{self.toggle_key.upper()}] 매크로 시작/중지")
+        print(f"  [{self.quit_key.upper()}] 프로그램 종료")
+        print()
+        print("[*] 게임에서 레벨을 시작한 뒤 F6을 눌러 매크로를 시작하세요.")
+        print(f"[*] 카운트다운: {self.countdown}초 / 시작 딜레이: {self.start_delay}ms")
+        print()
+
         if self.overlay:
             self.overlay.start()
 
-        # 핫키 리스너 시작
         listener = keyboard.Listener(on_press=self._on_key_press)
         listener.start()
 
-        self.running = True
-        consecutive_failures = 0
-
         try:
             while self.running:
-                if not self.macro_active:
-                    time.sleep(0.1)
-                    continue
-
-                try:
-                    # 화면 캡처
-                    image = self.capture.capture()
-
-                    # KPS 인식
-                    kps = self.reader.read_kps(image)
-
-                    if kps is not None:
-                        consecutive_failures = 0
-                        self.player.update_kps(kps)
-                        status = f"KPS: {kps:.1f} | 활성"
-                        print(f"\r  {status}    ", end="", flush=True)
-                    else:
-                        consecutive_failures += 1
-                        if consecutive_failures > 20:
-                            status = "KPS 인식 실패 - 영역 확인 필요"
-                            print(f"\r  [!] {status}    ", end="", flush=True)
-
+                if self.macro_started and not self.player.is_running:
+                    self.macro_started = False
+                    status = "[레벨 완료!]"
+                    print(f"\n\n{status}")
                     if self.overlay:
                         self.overlay.update(status)
-
-                except Exception as e:
-                    print(f"\n[!] 오류: {e}")
-
-                time.sleep(self.capture_interval)
-
+                time.sleep(0.1)
         except KeyboardInterrupt:
             pass
         finally:
@@ -207,28 +162,90 @@ class MacroController:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="얼불춤(ADOFAI) 자동 매크로 - KPS 기반 자동 키 입력"
+        description="얼불춤(ADOFAI) 자동 매크로 - .adofai 파일 기반 자동 플레이"
     )
     parser.add_argument(
-        "--config", "-c",
-        default="config.yaml",
-        help="설정 파일 경로 (기본: config.yaml)",
+        "level_file",
+        help=".adofai 레벨 파일 경로",
     )
     parser.add_argument(
-        "--set-region",
+        "--key", "-k",
+        default="space",
+        choices=["space", "d", "f", "j", "k"],
+        help="입력할 키 (기본: space)",
+    )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=0,
+        help="시작 딜레이 (ms, 기본: 0)",
+    )
+    parser.add_argument(
+        "--countdown",
+        type=int,
+        default=3,
+        help="시작 카운트다운 초 (기본: 3)",
+    )
+    parser.add_argument(
+        "--no-overlay",
         action="store_true",
-        help="캡처 영역 설정 모드로 실행",
+        help="상태 오버레이 비활성화",
     )
+    parser.add_argument(
+        "--info",
+        action="store_true",
+        help="레벨 정보만 출력하고 종료",
+    )
+    parser.add_argument(
+        "--toggle-key",
+        default="f6",
+        help="매크로 시작/중지 핫키 (기본: f6)",
+    )
+    parser.add_argument(
+        "--quit-key",
+        default="f8",
+        help="프로그램 종료 핫키 (기본: f8)",
+    )
+
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    # 레벨 파일 파싱
+    print(f"[*] 레벨 파일 로딩: {args.level_file}")
+    try:
+        level = parse_level(args.level_file)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[!] 오류: {e}")
+        sys.exit(1)
 
-    if args.set_region:
-        capture = ScreenCapture()
-        region_setup_mode(capture)
+    if not level.tiles:
+        print("[!] 타일이 없는 레벨입니다.")
+        sys.exit(1)
+
+    # 정보 출력 모드
+    if args.info:
+        print()
+        print_level_info(level)
+        print()
+        print("  첫 10개 타일 타이밍:")
+        for tile in level.tiles[:11]:
+            ms_str = f"{tile.time_ms:>10.1f}ms"
+            angle_str = f"{tile.angle:>6.1f}°"
+            bpm_str = f"BPM={tile.bpm:.1f}"
+            mid = " [미드스핀]" if tile.is_midspin else ""
+            print(f"    타일 {tile.index:>4}: {ms_str}  {angle_str}  {bpm_str}{mid}")
         return
 
-    controller = MacroController(config)
+    print(f"[*] {len(level.tiles)}개 타일 로드 완료")
+
+    controller = MacroController(
+        level=level,
+        key=args.key,
+        start_delay=args.delay,
+        countdown=args.countdown,
+        show_overlay=not args.no_overlay,
+        toggle_key=args.toggle_key,
+        quit_key=args.quit_key,
+    )
     controller.run()
 
 
