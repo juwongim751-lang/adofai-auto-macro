@@ -2,6 +2,7 @@
 자동 플레이어 모듈 - .adofai 레벨 파일의 타이밍 정보에 따라 자동으로 키를 입력합니다.
 """
 
+import sys
 import time
 import threading
 
@@ -124,13 +125,39 @@ class AutoPlayer:
             self._held_key = None
             self._held_release_perf = None
 
+    def _begin_high_res_timer(self):
+        """Windows의 기본 타이머 해상도(~15.6ms)를 1ms로 올려 sleep 정밀도를 높인다.
+
+        이게 없으면 time.sleep(1ms)가 실제로 최대 ~15ms까지 자버려 입력이
+        전체적으로 조금씩 늦고(살짝 느림) 타일을 간헐적으로 놓치게 된다.
+        """
+        self._winmm = None
+        if not sys.platform.startswith("win"):
+            return
+        try:
+            import ctypes
+            winmm = ctypes.WinDLL("winmm")
+            winmm.timeBeginPeriod(1)
+            self._winmm = winmm
+        except Exception:
+            self._winmm = None
+
+    def _end_high_res_timer(self):
+        """올렸던 타이머 해상도를 다시 내린다 (시스템 전원 절약)."""
+        if getattr(self, "_winmm", None) is not None:
+            try:
+                self._winmm.timeEndPeriod(1)
+            except Exception:
+                pass
+            self._winmm = None
+
     def _wait_precise(self, target_time: float):
         """정밀한 타이밍으로 대기합니다 (busy-wait)."""
         while self._running:
             remaining = target_time - time.perf_counter()
             if remaining <= 0:
                 break
-            if remaining > 0.005:
+            if remaining > 0.002:
                 time.sleep(0.001)
 
     def _play_loop(self):
@@ -217,6 +244,7 @@ class AutoPlayer:
         self._current_tile = 0
         self._key_idx = 0
         self._last_press_perf = float("-inf")
+        self._begin_high_res_timer()
         self._thread = threading.Thread(target=self._play_loop, daemon=True)
         self._thread.start()
 
@@ -226,6 +254,7 @@ class AutoPlayer:
         if self._thread:
             self._thread.join(timeout=2.0)
             self._thread = None
+        self._end_high_res_timer()
 
     @property
     def is_running(self) -> bool:
