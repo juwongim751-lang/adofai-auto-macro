@@ -30,7 +30,8 @@ SPECIAL_KEY_NAMES = {
 class AutoPlayer:
     """.adofai 레벨의 타일 타이밍에 맞춰 자동으로 키를 입력하는 클래스."""
 
-    def __init__(self, keys="space", min_gap_ms: float = 16.0, offset_ms: float = 0.0):
+    def __init__(self, keys="space", min_gap_ms: float = 16.0, offset_ms: float = 0.0,
+                 tap_hold_ms: float = 24.0):
         """
         Args:
             keys: 입력할 키. 단일 문자열("space") 또는 여러 키 목록
@@ -57,6 +58,11 @@ class AutoPlayer:
         self._min_press_gap_s: float = max(0.0, min_gap_ms) / 1000.0
         self._last_press_perf: float = float("-inf")  # 마지막 입력 시각(동타 분산용)
         self._offset_s: float = offset_ms / 1000.0  # 전역 타이밍 보정(+늦게/-일찍)
+        # 각 입력을 즉시 떼지 않고 잠깐 눌러 유지했다가 떼서 인식률을 높인다.
+        # 타이밍이 밀리지 않도록 비동기로(대기 루프에서) 떼며, 다른 키들과
+        # 잠깐 동시에 눌려도 ADOFAI는 각 키의 누름 순간만 한 번씩 인식한다.
+        self._tap_hold_s: float = max(0.0, tap_hold_ms) / 1000.0
+        self._pending_releases: list = []  # [(key, 떼야_할_perf_시각)]
 
     def set_start_index(self, idx: int):
         """재생을 시작할 타일 인덱스를 설정합니다 (구간 연습용)."""
@@ -105,18 +111,55 @@ class AutoPlayer:
         return self._resolve_key(name)
 
     def _press_key(self):
-        """다음 키를 한 번 누릅니다 (여러 키면 순환)."""
+        """다음 키를 누릅니다 (여러 키면 순환). 즉시 떼지 않고 짧게 유지 후 비동기로 뗌."""
         key = self._next_key()
         kb = self._get_keyboard()
+        self._release_key_now(key)  # 같은 키가 아직 눌린 상태면 깔끔한 누름 엣지를 위해 먼저 뗌
         kb.press(key)
-        kb.release(key)
+        if self._tap_hold_s > 0:
+            self._pending_releases.append((key, time.perf_counter() + self._tap_hold_s))
+        else:
+            kb.release(key)
 
     def _press_hold(self):
         """다음 키를 누른 채로 유지합니다 (떼지 않음). 유지 중인 키를 반환."""
         key = self._next_key()
         kb = self._get_keyboard()
+        self._release_key_now(key)
         kb.press(key)
         return key
+
+    def _release_key_now(self, key):
+        """대기 중인 짧은-유지 입력 중 해당 키가 있으면 지금 바로 뗍니다."""
+        if not self._pending_releases:
+            return
+        remaining = []
+        released = False
+        for k, t in self._pending_releases:
+            if k == key and not released:
+                self._get_keyboard().release(k)
+                released = True
+            else:
+                remaining.append((k, t))
+        self._pending_releases = remaining
+
+    def _flush_releases(self, now: float):
+        """유지 시간이 지난 입력들을 뗍니다 (대기 루프에서 주기적으로 호출)."""
+        if not self._pending_releases:
+            return
+        remaining = []
+        for k, t in self._pending_releases:
+            if t <= now:
+                self._get_keyboard().release(k)
+            else:
+                remaining.append((k, t))
+        self._pending_releases = remaining
+
+    def _release_all_pending(self):
+        """대기 중인 모든 짧은-유지 입력을 즉시 뗍니다."""
+        for k, _t in self._pending_releases:
+            self._get_keyboard().release(k)
+        self._pending_releases = []
 
     def _release_hold(self):
         """유지 중인 롱노트 키를 뗍니다."""
@@ -152,9 +195,12 @@ class AutoPlayer:
             self._winmm = None
 
     def _wait_precise(self, target_time: float):
-        """정밀한 타이밍으로 대기합니다 (busy-wait)."""
+        """정밀한 타이밍으로 대기합니다 (busy-wait). 대기 중 짧은-유지 입력도 제때 뗌."""
         while self._running:
-            remaining = target_time - time.perf_counter()
+            now = time.perf_counter()
+            if self._pending_releases:
+                self._flush_releases(now)
+            remaining = target_time - now
             if remaining <= 0:
                 break
             if remaining > 0.002:
@@ -227,8 +273,9 @@ class AutoPlayer:
                 elapsed_ms = (time.perf_counter() - self._start_time) * 1000
                 self._progress_callback(i, len(tiles), elapsed_ms)
 
-        # 남은 홀드 키 정리
+        # 남은 홀드 키/짧은-유지 입력 정리
         self._release_hold()
+        self._release_all_pending()
 
         # 레벨 완료
         self._running = False
@@ -244,6 +291,7 @@ class AutoPlayer:
         self._current_tile = 0
         self._key_idx = 0
         self._last_press_perf = float("-inf")
+        self._pending_releases = []
         self._begin_high_res_timer()
         self._thread = threading.Thread(target=self._play_loop, daemon=True)
         self._thread.start()

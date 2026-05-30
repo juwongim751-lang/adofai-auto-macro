@@ -4,6 +4,8 @@ pynput/X 디스플레이 없이도 돌도록 가짜 keyboard를 주입한다.
 일반 문자 키는 pynput을 전혀 부르지 않으므로 헤드리스 CI에서도 통과한다.
 """
 
+import time
+
 import pytest
 
 from src.auto_player import AutoPlayer
@@ -213,3 +215,58 @@ def test_play_loop_hold_press_and_release():
     assert rec.log.index(("release", "b")) < rec.log.index(("press", "c"))
     # 끝나면 유지 중인 키가 없어야 한다
     assert ap._held_key is None
+
+
+def test_tap_hold_defers_release_then_releases():
+    """각 입력은 즉시 떼지 않고(짧게 유지) 나중에 떼져야 한다 (인식률 향상)."""
+    ap = AutoPlayer(keys="a", tap_hold_ms=50.0)
+    rec = _Recorder()
+    ap.keyboard = rec
+    ap._press_key()
+    # 누르자마자 떼면 안 됨 (아직 유지 중)
+    assert rec.pressed == ["a"]
+    assert rec.released == []
+    assert len(ap._pending_releases) == 1
+    # 유지 시간이 지나면 flush 시 떼진다
+    ap._flush_releases(time.perf_counter() + 1.0)
+    assert rec.released == ["a"]
+    assert ap._pending_releases == []
+
+
+def test_tap_hold_same_key_clean_edge():
+    """같은 키를 다시 누르기 전에 이전 유지분을 떼서 깔끔한 누름 엣지를 만든다."""
+    ap = AutoPlayer(keys="a", tap_hold_ms=50.0)
+    rec = _Recorder()
+    ap.keyboard = rec
+    ap._press_key()
+    ap._press_key()
+    # 두 번째 누름 전에 첫 'a'가 떼지고 다시 눌려야 한다
+    assert rec.log == [("press", "a"), ("release", "a"), ("press", "a")]
+
+
+def test_tap_hold_zero_releases_immediately():
+    """tap_hold_ms=0이면 예전처럼 즉시 떼야 한다 (회귀 방지)."""
+    ap = AutoPlayer(keys="a", tap_hold_ms=0.0)
+    rec = _Recorder()
+    ap.keyboard = rec
+    ap._press_key()
+    assert rec.log == [("press", "a"), ("release", "a")]
+    assert ap._pending_releases == []
+
+
+def test_play_loop_releases_all_pending_at_end():
+    """루프가 끝나면 유지 중이던 입력이 모두 떼져야 한다 (키 눌린 채 방치 방지)."""
+    lvl = LevelData(bpm=120, offset=0)
+    lvl.tiles = [
+        TileHit(index=0, time_ms=0, bpm=120, angle=0),
+        TileHit(index=1, time_ms=0, bpm=120, angle=180),
+        TileHit(index=2, time_ms=0, bpm=120, angle=180),
+    ]
+    ap = AutoPlayer(keys=["a", "b"], tap_hold_ms=5000.0)
+    rec = _Recorder()
+    ap.keyboard = rec
+    ap.load_level(lvl)
+    ap._running = True
+    ap._play_loop()
+    assert ap._pending_releases == []
+    assert sorted(rec.released) == sorted(rec.pressed)
