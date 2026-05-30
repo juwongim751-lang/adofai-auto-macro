@@ -230,9 +230,9 @@ def main():
     parser.add_argument(
         "--offset",
         type=float,
-        default=0.0,
-        help="전역 타이밍 보정 (ms, 기본 0). 양수=더 늦게 누름, 음수=더 일찍 누름. "
-             "전체가 밀린다면 이걸로 맞춤 (예: --offset -20 또는 --offset 20)",
+        default=-10.0,
+        help="전역 타이밍 보정 (ms, 기본 -10 = 입력 지연 보정으로 살짝 일찍 누름). "
+             "양수=더 늦게, 음수=더 일찍. 아직 느리면 -20, 너무 빠르면 0",
     )
     parser.add_argument(
         "--no-overlay",
