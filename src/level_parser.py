@@ -46,6 +46,7 @@ class TileHit:
     bpm: float
     angle: float  # 상대 각도
     is_midspin: bool = False
+    auto: bool = False  # 게임이 자동으로 치는 구간(AutoPlayTiles) - 매크로는 누르지 않음
 
 
 @dataclass
@@ -189,6 +190,8 @@ def parse_level(filepath: str) -> LevelData:
 
     speed_changes: dict[int, dict] = {}
     twirl_floors: list[int] = []  # 순서 유지 (중복 허용 = 토글)
+    pause_floors: dict[int, float] = {}  # floor -> 멈춤 길이(비트)
+    autoplay_events: list[tuple[int, bool]] = []  # (floor, enabled)
 
     for action in actions:
         floor = action.get("floor", 0)
@@ -198,6 +201,27 @@ def parse_level(filepath: str) -> LevelData:
             speed_changes[floor] = action
         elif event_type == "Twirl":
             twirl_floors.append(floor)
+        elif event_type == "Pause":
+            # 멈춤: 해당 타일에서 duration 비트만큼 멈췄다가 다음 타일로 진행
+            pause_floors[floor] = pause_floors.get(floor, 0.0) + float(action.get("duration", 0))
+        elif event_type == "AutoPlayTiles":
+            autoplay_events.append((floor, bool(action.get("enabled", True))))
+
+    # AutoPlayTiles 구간 계산: enabled=True 타일부터 enabled=False 타일 전까지 자동 재생
+    auto_floors: set[int] = set()
+    autoplay_events.sort(key=lambda x: x[0])
+    auto_on_from: int | None = None
+    for floor, enabled in autoplay_events:
+        if enabled and auto_on_from is None:
+            auto_on_from = floor
+        elif not enabled and auto_on_from is not None:
+            for f in range(auto_on_from, floor):
+                auto_floors.add(f)
+            auto_on_from = None
+    if auto_on_from is not None:
+        # 끝까지 켜져 있으면 마지막 타일까지 자동
+        for f in range(auto_on_from, len(angles) + 1):
+            auto_floors.add(f)
 
     # 마지막 타일 복제 (ADOFAI는 angleData보다 타일이 1개 더 많음 / adofaipy 방식)
     padded = list(angles)
@@ -249,7 +273,12 @@ def parse_level(filepath: str) -> LevelData:
         bpm=current_bpm,
         angle=0,
         is_midspin=(padded[0] == 999) if padded else False,
+        auto=(0 in auto_floors),
     ))
+
+    # floor 0에 멈춤이 있으면 적용
+    if 0 in pause_floors:
+        current_time_ms += pause_floors[0] * (60000.0 / current_bpm) if current_bpm > 0 else 0
 
     for idx in range(1, len(abs_angles)):
         # BPM 변경 (해당 타일로 진입하는 회전부터 적용)
@@ -274,7 +303,12 @@ def parse_level(filepath: str) -> LevelData:
             bpm=current_bpm,
             angle=rel_angle,
             is_midspin=is_midspin,
+            auto=(idx in auto_floors),
         ))
+
+        # 멈춤(Pause): 이 타일에 도착한 뒤 duration 비트만큼 대기 → 이후 타일 전체가 밀림
+        if idx in pause_floors and current_bpm > 0:
+            current_time_ms += pause_floors[idx] * (60000.0 / current_bpm)
 
     return level
 
@@ -293,3 +327,7 @@ def print_level_info(level: LevelData):
         minutes = int(total_time // 60000)
         seconds = (total_time % 60000) / 1000
         print(f"  총 길이: {minutes}분 {seconds:.1f}초")
+
+        auto_count = sum(1 for t in level.tiles if getattr(t, "auto", False))
+        if auto_count:
+            print(f"  자동 재생 타일(매크로 입력 제외): {auto_count}개")

@@ -100,6 +100,10 @@ class AutoPlayer:
             if not self._running:
                 break
 
+            # 게임이 자동으로 치는 구간(AutoPlayTiles)은 누르지 않음
+            if getattr(tile, "auto", False):
+                continue
+
             # 키 입력
             self._press_key()
 
