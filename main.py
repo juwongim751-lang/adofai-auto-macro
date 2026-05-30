@@ -35,7 +35,7 @@ class MacroController:
     def __init__(
         self,
         level: LevelData,
-        key: str = "space",
+        keys="w,f,o,j",
         start_delay: float = 0.0,
         countdown: int = 3,
         show_overlay: bool = True,
@@ -48,7 +48,7 @@ class MacroController:
         self.toggle_key = toggle_key
         self.quit_key = quit_key
 
-        self.player = AutoPlayer(key=key)
+        self.player = AutoPlayer(keys=keys)
         self.player.load_level(level)
         self.player.set_progress_callback(self._on_progress)
 
@@ -191,9 +191,9 @@ def main():
     )
     parser.add_argument(
         "--key", "-k",
-        default="space",
-        choices=["space", "d", "f", "j", "k"],
-        help="입력할 키 (기본: space)",
+        default="w,f,o,j",
+        help="입력할 키. 쉼표로 여러 개 지정하면 타일마다 번갈아 눌름 "
+             "(기본: w,f,o,j / 예: --key space 또는 --key d,f,j,k)",
     )
     parser.add_argument(
         "--delay",
@@ -281,7 +281,7 @@ def main():
 
     controller = MacroController(
         level=level,
-        key=args.key,
+        keys=[k.strip() for k in args.key.split(",") if k.strip()],
         start_delay=args.delay,
         countdown=args.countdown,
         show_overlay=not args.no_overlay,

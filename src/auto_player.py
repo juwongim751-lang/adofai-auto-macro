@@ -12,21 +12,20 @@ from src.level_parser import LevelData, TileHit
 class AutoPlayer:
     """.adofai 레벨의 타일 타이밍에 맞춰 자동으로 키를 입력하는 클래스."""
 
-    KEY_MAP = {
+    SPECIAL_KEYS = {
         "space": Key.space,
-        "d": "d",
-        "f": "f",
-        "j": "j",
-        "k": "k",
     }
 
-    def __init__(self, key: str = "space"):
+    def __init__(self, keys="space"):
         """
         Args:
-            key: 입력할 키 (기본: space).
+            keys: 입력할 키. 단일 문자열("space") 또는 여러 키 목록
+                  (["w", "f", "o", "j"]). 여러 개면 타일마다 번갈아 눌러
+                  같은 키 연타를 피한다 (게임의 채터 블로커 회피).
         """
         self.keyboard = Controller()
-        self.key = self.KEY_MAP.get(key, key)
+        self.keys = self._normalize_keys(keys)
+        self._key_idx = 0
 
         self._running = False
         self._thread: threading.Thread | None = None
@@ -44,10 +43,24 @@ class AutoPlayer:
         """진행 상황 콜백을 설정합니다. callback(tile_index, total_tiles, time_ms)"""
         self._progress_callback = callback
 
+    def _normalize_keys(self, keys) -> list:
+        """키 설정을 pynput이 쓸 수 있는 리스트로 변환합니다."""
+        if isinstance(keys, str):
+            keys = [keys]
+        normalized = []
+        for k in keys:
+            k = str(k).strip().lower()
+            if not k:
+                continue
+            normalized.append(self.SPECIAL_KEYS.get(k, k))
+        return normalized or [Key.space]
+
     def _press_key(self):
-        """키를 한 번 누릅니다."""
-        self.keyboard.press(self.key)
-        self.keyboard.release(self.key)
+        """다음 키를 한 번 누릅니다 (여러 키면 순환)."""
+        key = self.keys[self._key_idx % len(self.keys)]
+        self._key_idx += 1
+        self.keyboard.press(key)
+        self.keyboard.release(key)
 
     def _wait_precise(self, target_time: float):
         """정밀한 타이밍으로 대기합니다 (busy-wait)."""
@@ -107,6 +120,7 @@ class AutoPlayer:
 
         self._running = True
         self._current_tile = 0
+        self._key_idx = 0
         self._thread = threading.Thread(target=self._play_loop, daemon=True)
         self._thread.start()
 
