@@ -1,6 +1,11 @@
 """SetSpeed / Pause / AutoPlayTiles 이벤트 처리와 타이밍 계산 검증."""
 
-from src.level_parser import parse_level, _angle_to_ms, _get_relative_angle
+from src.level_parser import (
+    parse_level,
+    print_timing_table,
+    _angle_to_ms,
+    _get_relative_angle,
+)
 from tests.helpers import make_adofai
 
 
@@ -122,6 +127,18 @@ def test_hold_clamped_to_end(tmp_path):
     last = len(lv.tiles) - 1
     # 끝을 넘는 duration은 마지막 타일까지로 제한
     assert abs(lv.tiles[2].hold_ms - (lv.tiles[last].time_ms - lv.tiles[2].time_ms)) < 1e-6
+
+
+def test_print_timing_table_respects_start_and_limit(tmp_path, capsys):
+    f = make_adofai(tmp_path, [0, 0, 0, 0, 0], bpm=120)
+    lv = parse_level(f)
+    print_timing_table(lv, start=2, limit=2)
+    out = capsys.readouterr().out
+    # 타일 2,3만 나오고 0,1은 안 나옴
+    assert "타일     2:" in out
+    assert "타일     3:" in out
+    assert "타일     0:" not in out
+    assert "타일     4:" not in out
 
 
 def test_angle_formula_known_values():

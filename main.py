@@ -19,7 +19,7 @@ from pathlib import Path
 # pynput은 실제 매크로 실행 시에만 필요하므로 지연 임포트한다
 # (--info 등 파싱 전용 기능은 X 디스플레이 없이도 동작).
 
-from src.level_parser import parse_level, print_level_info, LevelData
+from src.level_parser import parse_level, print_level_info, print_timing_table, LevelData
 from src.auto_player import AutoPlayer
 from src.level_finder import find_current_level, select_level_interactive
 
@@ -42,6 +42,7 @@ class MacroController:
         show_overlay: bool = True,
         toggle_key: str = "f6",
         quit_key: str = "f8",
+        start_tile: int = 0,
     ):
         self.level = level
         self.start_delay = start_delay
@@ -50,6 +51,7 @@ class MacroController:
         self.quit_key = quit_key
 
         self.player = AutoPlayer(keys=keys)
+        self.player.set_start_index(start_tile)
         self.player.load_level(level)
         self.player.set_progress_callback(self._on_progress)
 
@@ -220,6 +222,17 @@ def main():
         help="레벨 정보만 출력하고 종료",
     )
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="키 입력 없이 타일별 타이밍 표만 출력하고 종료 (안전 검증용)",
+    )
+    parser.add_argument(
+        "--start-tile",
+        type=int,
+        default=0,
+        help="이 타일 번호부터 재생 시작 (구간 연습용, 기본: 0)",
+    )
+    parser.add_argument(
         "--toggle-key",
         default="f6",
         help="매크로 시작/중지 핫키 (기본: f6)",
@@ -279,7 +292,19 @@ def main():
             print(f"    타일 {tile.index:>4}: {ms_str}  {angle_str}  {bpm_str}{mid}")
         return
 
+    # 드라이런: 키 입력 없이 타이밍 표만 출력
+    if args.dry_run:
+        print()
+        print_level_info(level)
+        print()
+        print_timing_table(level, start=args.start_tile)
+        print()
+        print("[*] 드라이런 모드: 키 입력 없이 타이밍만 출력했습니다.")
+        return
+
     print(f"[*] {len(level.tiles)}개 타일 로드 완료")
+    if args.start_tile > 0:
+        print(f"[*] 타일 {args.start_tile}번부터 재생합니다 (구간 연습)")
 
     controller = MacroController(
         level=level,
@@ -289,6 +314,7 @@ def main():
         show_overlay=not args.no_overlay,
         toggle_key=args.toggle_key,
         quit_key=args.quit_key,
+        start_tile=args.start_tile,
     )
     controller.run()
 

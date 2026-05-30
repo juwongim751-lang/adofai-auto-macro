@@ -48,6 +48,11 @@ class AutoPlayer:
         self._progress_callback = None
         self._held_key = None  # 롱노트로 누른 채 유지 중인 키
         self._held_release_perf: float | None = None  # 떼야 하는 perf 시각
+        self._start_index: int = 0  # 이 타일부터 재생 (구간 연습용)
+
+    def set_start_index(self, idx: int):
+        """재생을 시작할 타일 인덱스를 설정합니다 (구간 연습용)."""
+        self._start_index = max(0, int(idx))
 
     def load_level(self, level: LevelData):
         """레벨 데이터를 로드합니다."""
@@ -128,8 +133,9 @@ class AutoPlayer:
 
         tiles = self._level.tiles
 
-        # 첫 타일의 시간을 기준으로 시작 시간 계산
-        first_tile_time_ms = tiles[0].time_ms
+        # 재생 시작 타일 (구간 연습 시 중간부터). 그 타일의 시간을 기준점으로.
+        start_i = min(max(0, self._start_index), len(tiles) - 1)
+        first_tile_time_ms = tiles[start_i].time_ms
         self._start_time = time.perf_counter() - (first_tile_time_ms / 1000.0)
 
         for i, tile in enumerate(tiles):
@@ -138,9 +144,8 @@ class AutoPlayer:
 
             self._current_tile = i
 
-            # 미드스핀 타일은 건너뛰지 않고 입력
-            # floor 0 (시작 타일)은 건너뜀
-            if i == 0:
+            # 시작 타일 이전(그리고 floor 0 시작 타일)은 건너뜀
+            if i <= start_i:
                 continue
 
             # 목표 시간까지 대기

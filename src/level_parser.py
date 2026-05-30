@@ -351,3 +351,49 @@ def print_level_info(level: LevelData):
         auto_count = sum(1 for t in level.tiles if getattr(t, "auto", False))
         if auto_count:
             print(f"  자동 재생 타일(매크로 입력 제외): {auto_count}개")
+
+        hold_count = sum(1 for t in level.tiles if getattr(t, "hold_ms", 0.0) > 0)
+        if hold_count:
+            print(f"  롱노트(Hold) 타일: {hold_count}개")
+
+
+def _tile_marker(tile: TileHit) -> str:
+    """타일의 특수 상태를 짧은 표식 문자열로 반환합니다."""
+    marks = []
+    if tile.is_midspin:
+        marks.append("미드스핀")
+    if getattr(tile, "auto", False):
+        marks.append("자동")
+    if getattr(tile, "hold_ms", 0.0) > 0:
+        marks.append(f"홀드 {tile.hold_ms:.0f}ms")
+    elif getattr(tile, "hold_covered", False):
+        marks.append("홀드유지")
+    return (" [" + ", ".join(marks) + "]") if marks else ""
+
+
+def print_timing_table(level: LevelData, start: int = 0, limit: int | None = None):
+    """타일별 타이밍 표를 출력합니다 (키 입력 없이 검증용).
+
+    Args:
+        level: 파싱된 레벨.
+        start: 출력 시작 타일 인덱스.
+        limit: 출력할 타일 수 (None이면 끝까지).
+    """
+    tiles = level.tiles
+    if not tiles:
+        print("  (타일 없음)")
+        return
+
+    start = max(0, start)
+    end = len(tiles) if limit is None else min(len(tiles), start + limit)
+
+    print(f"  타이밍 표 (타일 {start} ~ {end - 1} / 총 {len(tiles)}개):")
+    prev_ms = tiles[start].time_ms if start < len(tiles) else 0.0
+    for tile in tiles[start:end]:
+        delta = tile.time_ms - prev_ms
+        prev_ms = tile.time_ms
+        ms_str = f"{tile.time_ms:>10.1f}ms"
+        delta_str = f"+{delta:>7.1f}ms"
+        angle_str = f"{tile.angle:>6.1f}°"
+        bpm_str = f"BPM={tile.bpm:.1f}"
+        print(f"    타일 {tile.index:>5}: {ms_str} {delta_str}  {angle_str}  {bpm_str}{_tile_marker(tile)}")

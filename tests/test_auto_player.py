@@ -89,6 +89,26 @@ def test_play_loop_skips_auto_tiles():
     assert rec.pressed == ["a", "b"]
 
 
+def test_play_loop_start_index_skips_earlier_tiles():
+    """--start-tile: 지정 인덱스 이전 타일은 누르지 않는다."""
+    lvl = LevelData(bpm=120, offset=0)
+    lvl.tiles = [
+        TileHit(index=0, time_ms=0, bpm=120, angle=0),
+        TileHit(index=1, time_ms=0, bpm=120, angle=180),
+        TileHit(index=2, time_ms=0, bpm=120, angle=180),
+        TileHit(index=3, time_ms=0, bpm=120, angle=180),
+    ]
+    ap = AutoPlayer(keys=["a", "b", "c", "d"])
+    rec = _Recorder()
+    ap.keyboard = rec
+    ap.set_start_index(2)
+    ap.load_level(lvl)
+    ap._running = True
+    ap._play_loop()
+    # 타일 0,1,2는 건너뛰고 타일 3만 입력 (키 순환은 처음부터)
+    assert rec.pressed == ["a"]
+
+
 def test_play_loop_hold_press_and_release():
     """롱노트(hold) 타일은 누른 채 유지하고, 유지 중 타일은 안 누르고, 끝에 뗀다."""
     lvl = LevelData(bpm=120, offset=0)
