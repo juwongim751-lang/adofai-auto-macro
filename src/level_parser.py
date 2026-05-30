@@ -123,13 +123,14 @@ def _parse_angles(data: dict) -> list[float]:
 
 def _get_relative_angle(this_angle: float, next_angle: float, twirled: bool) -> float:
     """
-    두 타일 사이의 상대 각도를 계산합니다.
-    공식: angle = (NextTile - ThisTile + 540) % 360
+    두 타일 사이의 행성이 회전하는 상대 각도를 계산합니다.
+    공식: angle = (180 + ThisTile - NextTile) % 360
+    (직선 타일=180°, R→U 같은 90° 꺾임=90°. ADOFAI 실제 동작과 일치)
     """
     if next_angle == 999 or this_angle == 999:
         return 0  # 미드스핀
 
-    angle = (next_angle - this_angle + 540) % 360
+    angle = (180 + this_angle - next_angle) % 360
     if twirled:
         angle = 360 - angle
     if angle == 0:
