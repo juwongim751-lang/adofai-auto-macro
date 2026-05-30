@@ -3,10 +3,12 @@
 .adofai 레벨 파일을 파싱하여 타일 타이밍에 맞춰 자동으로 키를 입력합니다.
 
 사용법:
-    python main.py level.adofai              # 레벨 파일 지정하여 실행
-    python main.py level.adofai --key d      # 입력 키를 d로 변경
-    python main.py level.adofai --delay 200  # 시작 딜레이 200ms 추가
-    python main.py --info level.adofai       # 레벨 정보만 출력
+    python main.py                           # 현재 플레이 중인 맵 자동 탐색
+    python main.py --select                  # 탐색된 맵 목록에서 선택
+    python main.py level.adofai              # 레벨 파일 직접 지정
+    python main.py --key d                   # 입력 키를 d로 변경
+    python main.py --delay 200               # 시작 딜레이 200ms 추가
+    python main.py --info                    # 레벨 정보만 출력
 """
 
 import argparse
@@ -18,7 +20,13 @@ from pynput import keyboard
 
 from src.level_parser import parse_level, print_level_info, LevelData
 from src.auto_player import AutoPlayer
-from src.overlay import StatusOverlay
+from src.level_finder import find_current_level, select_level_interactive
+
+try:
+    from src.overlay import StatusOverlay
+except ImportError:
+    # tkinter 미설치 환경에서는 오버레이 없이 동작
+    StatusOverlay = None
 
 
 class MacroController:
@@ -44,7 +52,7 @@ class MacroController:
         self.player.load_level(level)
         self.player.set_progress_callback(self._on_progress)
 
-        self.overlay = StatusOverlay() if show_overlay else None
+        self.overlay = StatusOverlay() if (show_overlay and StatusOverlay) else None
         self.running = True
         self.macro_started = False
 
@@ -166,7 +174,20 @@ def main():
     )
     parser.add_argument(
         "level_file",
-        help=".adofai 레벨 파일 경로",
+        nargs="?",
+        default=None,
+        help=".adofai 레벨 파일 경로 (생략 시 현재 플레이 중인 맵 자동 탐색)",
+    )
+    parser.add_argument(
+        "--select", "-s",
+        action="store_true",
+        help="탐색된 맵 목록에서 직접 선택",
+    )
+    parser.add_argument(
+        "--dir",
+        action="append",
+        default=[],
+        help="추가로 검색할 레벨 폴더 경로 (여러 번 지정 가능)",
     )
     parser.add_argument(
         "--key", "-k",
@@ -209,10 +230,31 @@ def main():
 
     args = parser.parse_args()
 
+    # 레벨 파일 결정: 직접 지정 > 목록 선택 > 자동 탐색
+    level_path = args.level_file
+
+    if level_path is None:
+        if args.select:
+            print("[*] 레벨 탐색 중...")
+            selected = select_level_interactive(args.dir)
+            if selected is None:
+                print("[!] 레벨을 선택하지 않았습니다. 종료합니다.")
+                sys.exit(1)
+            level_path = str(selected)
+        else:
+            print("[*] 현재 플레이 중인 맵 자동 탐색 중...")
+            found = find_current_level(args.dir)
+            if found is None:
+                print("[!] 자동으로 맵을 찾지 못했습니다.")
+                print("    --select 옵션으로 목록에서 선택하거나, 파일 경로를 직접 지정하세요.")
+                sys.exit(1)
+            level_path = str(found)
+            print(f"[*] 자동 탐색된 맵: {found.name}")
+
     # 레벨 파일 파싱
-    print(f"[*] 레벨 파일 로딩: {args.level_file}")
+    print(f"[*] 레벨 파일 로딩: {level_path}")
     try:
-        level = parse_level(args.level_file)
+        level = parse_level(level_path)
     except (FileNotFoundError, ValueError) as e:
         print(f"[!] 오류: {e}")
         sys.exit(1)

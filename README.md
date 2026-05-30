@@ -6,9 +6,18 @@
 
 ## 동작 원리
 
-1. `.adofai` 레벨 파일에서 **타일 각도(angleData/pathData)**, **BPM**, **SetSpeed**, **Twirl** 이벤트를 파싱
-2. 각 타일의 상대 각도를 계산하여 정확한 입력 타이밍(ms)을 산출
-3. 게임 내에서 계산된 타이밍에 맞춰 자동으로 키를 입력
+1. **현재 플레이 중인 맵을 자동으로 탐색** (파일 경로를 직접 입력할 필요 없음)
+2. `.adofai` 레벨 파일에서 **타일 각도(angleData/pathData)**, **BPM**, **SetSpeed**, **Twirl** 이벤트를 파싱
+3. 각 타일의 상대 각도를 계산하여 정확한 입력 타이밍(ms)을 산출
+4. 게임 내에서 계산된 타이밍에 맞춰 자동으로 키를 입력
+
+### 맵 자동 탐색 방식
+
+파일을 직접 지정하지 않으면 다음 순서로 현재 맵을 찾습니다:
+
+1. **ADOFAI Player.log 분석** — 게임이 마지막으로 로드한 `.adofai` 경로를 추출
+2. **레벨 폴더 스캔** — Steam 워크샵 / 커스텀 레벨 폴더에서 가장 최근에 수정된 `.adofai` 파일
+3. **목록 선택** — `--select` 옵션으로 탐색된 맵 목록에서 직접 선택
 
 ### 타이밍 계산 공식
 ```
@@ -18,6 +27,7 @@
 
 ## 기능
 
+- **맵 자동 탐색**: 현재 플레이 중인 맵을 Player.log/폴더 스캔으로 자동 감지
 - **.adofai 파일 파싱**: angleData, pathData 모두 지원
 - **BPM 변경 지원**: SetSpeed 이벤트(Bpm / Multiplier) 자동 반영
 - **Twirl 지원**: 회전 방향 반전 자동 처리
@@ -49,7 +59,20 @@ pip install -r requirements.txt
 
 ## 사용법
 
-### 기본 실행
+### 기본 실행 (맵 자동 탐색)
+
+```bash
+# 현재 플레이 중인 맵을 자동으로 찾아서 실행 (파일 경로 입력 불필요)
+python main.py
+
+# 탐색된 맵 목록에서 직접 선택
+python main.py --select
+
+# 자동 탐색이 안 될 때 검색할 폴더를 추가 지정
+python main.py --dir "C:\내커스텀레벨폴더"
+```
+
+### 파일 직접 지정
 
 ```bash
 # .adofai 파일 경로를 인자로 전달
@@ -60,29 +83,31 @@ python main.py "C:\경로\레벨파일.adofai"
 
 ```bash
 # 입력 키 변경 (기본: space)
-python main.py level.adofai --key d
+python main.py --key d
 
 # 시작 딜레이 추가 (ms)
-python main.py level.adofai --delay 200
+python main.py --delay 200
 
 # 카운트다운 변경 (기본: 3초)
-python main.py level.adofai --countdown 5
+python main.py --countdown 5
 
 # 레벨 정보만 출력
-python main.py level.adofai --info
+python main.py --info
 
 # 오버레이 비활성화
-python main.py level.adofai --no-overlay
+python main.py --no-overlay
 ```
 
 ### 실행 순서
 
 1. 얼불춤 게임을 실행합니다
-2. 플레이할 레벨을 선택하고 시작 화면까지 진입합니다
-3. 매크로를 실행합니다: `python main.py "레벨파일.adofai"`
+2. 플레이할 레벨을 한 번 선택/로드합니다 (Player.log에 기록됨)
+3. 매크로를 실행합니다: `python main.py` (자동으로 해당 맵을 찾습니다)
 4. 게임에서 레벨을 시작합니다
 5. **F6**을 눌러 매크로를 시작합니다 (3초 카운트다운 후 자동 입력 시작)
 6. **F6**을 다시 눌러 중지하거나, **F8**로 프로그램을 종료합니다
+
+> 자동 탐색이 잘못된 맵을 고른다면 `python main.py --select`로 목록에서 직접 고르거나, 파일 경로를 직접 지정하세요.
 
 ## 핫키
 
@@ -115,6 +140,7 @@ adofai-auto-macro/
 └── src/
     ├── __init__.py
     ├── level_parser.py    # .adofai 파일 파서 (타이밍 계산)
+    ├── level_finder.py    # 현재 플레이 중인 맵 자동 탐색
     ├── auto_player.py     # 타이밍 기반 자동 키 입력
     └── overlay.py         # 상태 오버레이
 ```
@@ -124,6 +150,7 @@ adofai-auto-macro/
 - **딜레이 조정**: 게임 시작과 매크로 시작 사이에 타이밍이 맞지 않으면 `--delay` 옵션으로 조정하세요
 - **카운트다운 활용**: 카운트다운 동안 게임에서 레벨을 시작하면 타이밍을 맞추기 쉽습니다
 - **레벨 정보 확인**: `--info` 옵션으로 먼저 레벨의 BPM, 타일 수, 길이를 확인하세요
+- **자동 탐색 정확도**: 게임에서 맵을 한 번 로드하면 Player.log에 기록되어 자동 탐색 정확도가 올라갑니다
 
 ## 주의 사항
 
