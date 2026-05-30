@@ -38,7 +38,7 @@ class MacroController:
         level: LevelData,
         keys="q,w,e,r,t,y,u,i,o,p",
         start_delay: float = 0.0,
-        countdown: int = 1,
+        countdown: int = 0,
         show_overlay: bool = True,
         toggle_key: str = "f6",
         quit_key: str = "f8",
@@ -223,8 +223,9 @@ def main():
     parser.add_argument(
         "--countdown",
         type=int,
-        default=1,
-        help="시작 카운트다운 초 (기본: 1)",
+        default=0,
+        help="시작 카운트다운 초 (기본: 0 = F6 누르면 바로 시작). 준비 시간이 "
+             "필요하면 --countdown 3 처럼 늘려라",
     )
     parser.add_argument(
         "--offset",
