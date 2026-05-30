@@ -7,7 +7,7 @@
 macro:
   # 입력할 키. 쉼표로 여러 개 지정하면 타일마다 번갈아 눌러 같은 키 연타를
   # 피한다 (게임의 채터 블로커 회피). 예: w,f,o,j / space / d,f,j,k
-  key: w,f,o,j
+  key: q,w,e,r,t,y,u,i,o,p
 
   # 시작 카운트다운 (초)
   countdown: 3

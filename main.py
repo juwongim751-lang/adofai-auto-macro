@@ -35,7 +35,7 @@ class MacroController:
     def __init__(
         self,
         level: LevelData,
-        keys="w,f,o,j",
+        keys="q,w,e,r,t,y,u,i,o,p",
         start_delay: float = 0.0,
         countdown: int = 3,
         show_overlay: bool = True,
@@ -191,9 +191,9 @@ def main():
     )
     parser.add_argument(
         "--key", "-k",
-        default="w,f,o,j",
+        default="q,w,e,r,t,y,u,i,o,p",
         help="입력할 키. 쉼표로 여러 개 지정하면 타일마다 번갈아 눌름 "
-             "(기본: w,f,o,j / 예: --key space 또는 --key d,f,j,k)",
+             "(기본: q,w,e,r,t,y,u,i,o,p / 예: --key space 또는 --key d,f,j,k)",
     )
     parser.add_argument(
         "--delay",
