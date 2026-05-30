@@ -187,9 +187,8 @@ def parse_level(filepath: str) -> LevelData:
     # 이벤트(actions)에서 BPM 변경 및 Twirl 이벤트 추출
     actions = data.get("actions", [])
 
-    # 타일별 BPM 변경 이벤트
     speed_changes: dict[int, dict] = {}
-    twirl_tiles: set[int] = set()
+    twirl_floors: list[int] = []  # 순서 유지 (중복 허용 = 토글)
 
     for action in actions:
         floor = action.get("floor", 0)
@@ -198,72 +197,84 @@ def parse_level(filepath: str) -> LevelData:
         if event_type == "SetSpeed":
             speed_changes[floor] = action
         elif event_type == "Twirl":
-            twirl_tiles.add(floor)
+            twirl_floors.append(floor)
 
-    # 타이밍 계산
+    # 마지막 타일 복제 (ADOFAI는 angleData보다 타일이 1개 더 많음 / adofaipy 방식)
+    padded = list(angles)
+    if padded:
+        last = padded[-1]
+        if last != 999:
+            padded.append(last)
+        else:
+            padded.append((padded[-2] + 180) % 360 if len(padded) >= 2 else 0)
+
+    # --- Twirl 처리: 절대 각도를 직전 타일 각도 기준으로 반사 ---
+    # (adofaipy 방식: absangles[twirl:] = (2*absangles[twirl-1] - angle) % 360)
+    abs_angles = list(padded)
+    for twirl in sorted(twirl_floors, reverse=True):
+        if twirl < 1 or twirl >= len(abs_angles):
+            continue
+        axis = abs_angles[twirl - 1]
+        for k in range(twirl, len(abs_angles)):
+            if abs_angles[k] != 999:
+                abs_angles[k] = (2 * axis - abs_angles[k]) % 360
+
+    # --- 미드스핀 처리: 미드스핀 이후 모든 타일 각도에 180도 추가 ---
+    midspins = [idx for idx, a in enumerate(abs_angles) if a == 999]
+    for mid in sorted(midspins, reverse=True):
+        for k in range(mid + 1, len(abs_angles)):
+            if abs_angles[k] != 999:
+                abs_angles[k] = (abs_angles[k] + 180) % 360
+
+    # --- 상대 각도 계산 (twirl/midspin이 이미 abs_angles에 반영됨) ---
+    def _rel_at(idx: int) -> float:
+        if abs_angles[idx] == 999:
+            return 0.0
+        if idx == 0:
+            prev = 0.0
+        elif abs_angles[idx - 1] == 999:
+            prev = abs_angles[idx - 2] if idx >= 2 else 0.0
+        else:
+            prev = abs_angles[idx - 1]
+        return _get_relative_angle(prev, abs_angles[idx], False)
+
+    # --- 타임라인 구성 ---
     current_bpm = level.bpm
     current_time_ms = level.offset
-    twirled = False
 
-    # 첫 번째 타일 (floor 0)
+    # 첫 번째 타일 (floor 0): 시작 지점
     level.tiles.append(TileHit(
         index=0,
         time_ms=current_time_ms,
         bpm=current_bpm,
         angle=0,
+        is_midspin=(padded[0] == 999) if padded else False,
     ))
 
-    for i in range(len(angles)):
-        tile_floor = i + 1  # floor index (1-based for actual tiles)
-
-        # Twirl 확인 (현재 타일에 Twirl 이벤트가 있으면 방향 반전)
-        if tile_floor in twirl_tiles:
-            twirled = not twirled
-
-        # BPM 변경 확인 (현재 타일에 SetSpeed가 있으면 BPM 업데이트)
-        if tile_floor in speed_changes:
-            speed_event = speed_changes[tile_floor]
+    for idx in range(1, len(abs_angles)):
+        # BPM 변경 (해당 타일로 진입하는 회전부터 적용)
+        if idx in speed_changes:
+            speed_event = speed_changes[idx]
             speed_type = speed_event.get("speedType", "Bpm")
-
             if speed_type == "Bpm":
                 current_bpm = float(speed_event.get("beatsPerMinute", current_bpm))
             elif speed_type == "Multiplier":
                 multiplier = float(speed_event.get("bpmMultiplier", 1.0))
                 current_bpm *= multiplier
 
-        # 상대 각도 계산
-        if i < len(angles):
-            this_angle = angles[i]
-            is_midspin = (this_angle == 999)
+        is_midspin = (padded[idx] == 999)
+        rel_angle = _rel_at(idx)
 
-            if i == 0:
-                # 첫 번째 타일의 이전 각도는 기본적으로 0 (R 방향)
-                prev_angle = 0
-            else:
-                prev_angle = angles[i - 1]
-                if prev_angle == 999:
-                    # 미드스핀의 경우 그 이전 타일의 각도를 사용
-                    for j in range(i - 2, -1, -1):
-                        if angles[j] != 999:
-                            prev_angle = angles[j]
-                            break
+        interval_ms = _angle_to_ms(rel_angle, current_bpm)
+        current_time_ms += interval_ms
 
-            if is_midspin:
-                rel_angle = 0
-            else:
-                rel_angle = _get_relative_angle(prev_angle, this_angle, twirled)
-
-            # 시간 계산
-            interval_ms = _angle_to_ms(rel_angle, current_bpm)
-            current_time_ms += interval_ms
-
-            level.tiles.append(TileHit(
-                index=tile_floor,
-                time_ms=current_time_ms,
-                bpm=current_bpm,
-                angle=rel_angle,
-                is_midspin=is_midspin,
-            ))
+        level.tiles.append(TileHit(
+            index=idx,
+            time_ms=current_time_ms,
+            bpm=current_bpm,
+            angle=rel_angle,
+            is_midspin=is_midspin,
+        ))
 
     return level
 
