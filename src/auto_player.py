@@ -46,6 +46,8 @@ class AutoPlayer:
         self._current_tile: int = 0
         self._start_time: float = 0.0
         self._progress_callback = None
+        self._held_key = None  # 롱노트로 누른 채 유지 중인 키
+        self._held_release_perf: float | None = None  # 떼야 하는 perf 시각
 
     def load_level(self, level: LevelData):
         """레벨 데이터를 로드합니다."""
@@ -83,14 +85,32 @@ class AutoPlayer:
             return getattr(Key, SPECIAL_KEY_NAMES[name])
         return name
 
-    def _press_key(self):
-        """다음 키를 한 번 누릅니다 (여러 키면 순환)."""
+    def _next_key(self):
+        """다음 키를 순환해서 반환합니다 (resolve된 값)."""
         name = self.keys[self._key_idx % len(self.keys)]
         self._key_idx += 1
-        key = self._resolve_key(name)
+        return self._resolve_key(name)
+
+    def _press_key(self):
+        """다음 키를 한 번 누릅니다 (여러 키면 순환)."""
+        key = self._next_key()
         kb = self._get_keyboard()
         kb.press(key)
         kb.release(key)
+
+    def _press_hold(self):
+        """다음 키를 누른 채로 유지합니다 (떼지 않음). 유지 중인 키를 반환."""
+        key = self._next_key()
+        kb = self._get_keyboard()
+        kb.press(key)
+        return key
+
+    def _release_hold(self):
+        """유지 중인 롱노트 키를 뗍니다."""
+        if self._held_key is not None:
+            self._get_keyboard().release(self._held_key)
+            self._held_key = None
+            self._held_release_perf = None
 
     def _wait_precise(self, target_time: float):
         """정밀한 타이밍으로 대기합니다 (busy-wait)."""
@@ -130,17 +150,35 @@ class AutoPlayer:
             if not self._running:
                 break
 
+            # 유지 중인 롱노트가 떼야 할 시각을 지났으면 뗀다
+            if self._held_release_perf is not None and time.perf_counter() >= self._held_release_perf:
+                self._release_hold()
+
             # 게임이 자동으로 치는 구간(AutoPlayTiles)은 누르지 않음
             if getattr(tile, "auto", False):
                 continue
 
+            # 롱노트 유지 중 지나가는 타일은 따로 누르지 않음
+            if getattr(tile, "hold_covered", False):
+                continue
+
             # 키 입력
-            self._press_key()
+            hold_ms = getattr(tile, "hold_ms", 0.0)
+            if hold_ms and hold_ms > 0:
+                # 진행 중인 홀드가 있으면 먼저 떼고 새로 누른다
+                self._release_hold()
+                self._held_key = self._press_hold()
+                self._held_release_perf = self._start_time + ((tile.time_ms + hold_ms) / 1000.0)
+            else:
+                self._press_key()
 
             # 진행 상황 콜백
             if self._progress_callback:
                 elapsed_ms = (time.perf_counter() - self._start_time) * 1000
                 self._progress_callback(i, len(tiles), elapsed_ms)
+
+        # 남은 홀드 키 정리
+        self._release_hold()
 
         # 레벨 완료
         self._running = False

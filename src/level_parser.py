@@ -47,6 +47,8 @@ class TileHit:
     angle: float  # 상대 각도
     is_midspin: bool = False
     auto: bool = False  # 게임이 자동으로 치는 구간(AutoPlayTiles) - 매크로는 누르지 않음
+    hold_ms: float = 0.0  # >0이면 롱노트(Hold): 이 시간(ms)만큼 키를 누른 채 유지
+    hold_covered: bool = False  # 롱노트 유지 중 지나가는 타일 - 따로 누르지 않음
 
 
 @dataclass
@@ -192,6 +194,7 @@ def parse_level(filepath: str) -> LevelData:
     twirl_floors: list[int] = []  # 순서 유지 (중복 허용 = 토글)
     pause_floors: dict[int, float] = {}  # floor -> 멈춤 길이(비트)
     autoplay_events: list[tuple[int, bool]] = []  # (floor, enabled)
+    hold_floors: dict[int, int] = {}  # floor -> 유지할 타일 수(duration)
 
     for action in actions:
         floor = action.get("floor", 0)
@@ -206,6 +209,11 @@ def parse_level(filepath: str) -> LevelData:
             pause_floors[floor] = pause_floors.get(floor, 0.0) + float(action.get("duration", 0))
         elif event_type == "AutoPlayTiles":
             autoplay_events.append((floor, bool(action.get("enabled", True))))
+        elif event_type == "Hold":
+            # 롱노트: 이 타일부터 duration개 타일을 지나는 동안 키를 누른 채 유지
+            dur = int(action.get("duration", 0))
+            if dur > 0:
+                hold_floors[floor] = hold_floors.get(floor, 0) + dur
 
     # AutoPlayTiles 구간 계산: enabled=True 타일부터 enabled=False 타일 전까지 자동 재생
     auto_floors: set[int] = set()
@@ -309,6 +317,18 @@ def parse_level(filepath: str) -> LevelData:
         # 멈춤(Pause): 이 타일에 도착한 뒤 duration 비트만큼 대기 → 이후 타일 전체가 밀림
         if idx in pause_floors and current_bpm > 0:
             current_time_ms += pause_floors[idx] * (60000.0 / current_bpm)
+
+    # --- 롱노트(Hold) 처리 ---
+    # floor에서 키를 누른 뒤 duration개 타일을 지날 때까지 유지하고 그 시점에 뗀다.
+    # 사이의 타일(floor+1 ~ floor+duration)은 유지로 처리되므로 따로 누르지 않는다.
+    last_idx = len(level.tiles) - 1
+    for floor, dur in hold_floors.items():
+        if floor < 0 or floor > last_idx:
+            continue
+        end = min(floor + dur, last_idx)
+        level.tiles[floor].hold_ms = level.tiles[end].time_ms - level.tiles[floor].time_ms
+        for c in range(floor + 1, end + 1):
+            level.tiles[c].hold_covered = True
 
     return level
 

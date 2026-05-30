@@ -91,6 +91,39 @@ def test_autoplay_open_until_end(tmp_path):
     assert 0 not in autos and 3 not in autos
 
 
+def test_hold_marks_cover_and_duration(tmp_path):
+    # 직선 4타일 @120BPM (각 500ms), floor 1에서 duration 2 홀드
+    f = make_adofai(
+        tmp_path,
+        [0, 0, 0, 0, 0],
+        bpm=120,
+        actions=[{"floor": 1, "eventType": "Hold", "duration": 2}],
+    )
+    lv = parse_level(f)
+    # 홀드 시작 타일(1): 유지 시간 = tiles[3].time - tiles[1].time = 1000ms
+    assert abs(lv.tiles[1].hold_ms - 1000.0) < 1e-6
+    # 사이 타일(2,3)은 유지로 처리 → 따로 누르지 않음
+    assert lv.tiles[2].hold_covered is True
+    assert lv.tiles[3].hold_covered is True
+    # 홀드 밖 타일은 영향 없음
+    assert lv.tiles[1].hold_covered is False
+    assert lv.tiles[4].hold_covered is False
+    assert lv.tiles[4].hold_ms == 0.0
+
+
+def test_hold_clamped_to_end(tmp_path):
+    f = make_adofai(
+        tmp_path,
+        [0, 0, 0],
+        bpm=120,
+        actions=[{"floor": 2, "eventType": "Hold", "duration": 99}],
+    )
+    lv = parse_level(f)
+    last = len(lv.tiles) - 1
+    # 끝을 넘는 duration은 마지막 타일까지로 제한
+    assert abs(lv.tiles[2].hold_ms - (lv.tiles[last].time_ms - lv.tiles[2].time_ms)) < 1e-6
+
+
 def test_angle_formula_known_values():
     # 직선(R->R): 180°, R->U(0->90): 90°, U->R(90->0): 270°
     assert _get_relative_angle(0, 0, False) == 180

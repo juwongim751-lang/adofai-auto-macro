@@ -11,15 +11,19 @@ from src.level_parser import LevelData, TileHit
 
 
 class _Recorder:
-    """pynput Controller 대체: 눌린 키만 기록."""
+    """pynput Controller 대체: 누름/뗌을 순서대로 기록."""
     def __init__(self):
         self.pressed = []
+        self.released = []
+        self.log = []  # ("press"|"release", key) 순서 기록
 
     def press(self, key):
         self.pressed.append(key)
+        self.log.append(("press", key))
 
     def release(self, key):
-        pass
+        self.released.append(key)
+        self.log.append(("release", key))
 
 
 def test_single_key():
@@ -83,3 +87,28 @@ def test_play_loop_skips_auto_tiles():
     ap._play_loop()
     # 타일 0(시작) 건너뜀, 타일 2(auto) 건너뜀 → 타일 1,3만 입력
     assert rec.pressed == ["a", "b"]
+
+
+def test_play_loop_hold_press_and_release():
+    """롱노트(hold) 타일은 누른 채 유지하고, 유지 중 타일은 안 누르고, 끝에 뗀다."""
+    lvl = LevelData(bpm=120, offset=0)
+    lvl.tiles = [
+        TileHit(index=0, time_ms=0, bpm=120, angle=0),
+        TileHit(index=1, time_ms=0, bpm=120, angle=180),                       # 일반
+        TileHit(index=2, time_ms=0, bpm=120, angle=180, hold_ms=0.0001),       # 홀드 시작
+        TileHit(index=3, time_ms=0, bpm=120, angle=180, hold_covered=True),    # 유지 중
+        TileHit(index=4, time_ms=0, bpm=120, angle=180),                       # 일반
+    ]
+    ap = AutoPlayer(keys=["a", "b", "c", "d"])
+    rec = _Recorder()
+    ap.keyboard = rec
+    ap.load_level(lvl)
+    ap._running = True
+    ap._play_loop()
+    # 일반(a) → 홀드(b, 유지) → 유지타일 스킵 → 일반(c)
+    assert rec.pressed == ["a", "b", "c"]
+    # 홀드 키 b는 c가 눌리기 전에 떼져야 한다
+    assert ("release", "b") in rec.log
+    assert rec.log.index(("release", "b")) < rec.log.index(("press", "c"))
+    # 끝나면 유지 중인 키가 없어야 한다
+    assert ap._held_key is None
