@@ -47,6 +47,11 @@ def test_find_from_registry_folder_non_windows(monkeypatch):
     assert level_finder.find_level_from_registry_folder() is None
 
 
+def test_get_game_framerate_non_windows(monkeypatch):
+    monkeypatch.setattr(level_finder.sys, "platform", "linux")
+    assert level_finder.get_game_framerate() is None
+
+
 def _write_level(path, song="My Song", artist="Artist X", bpm=150):
     # angleData를 길게 넣어 settings가 앞부분 16KB 밖에 오도록(읽기 범위 검증) 해도 됨
     angles = ", ".join(["0"] * 50)

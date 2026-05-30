@@ -21,7 +21,7 @@ from pathlib import Path
 
 from src.level_parser import parse_level, print_level_info, print_timing_table, LevelData
 from src.auto_player import AutoPlayer
-from src.level_finder import find_current_level, select_level_interactive, list_levels
+from src.level_finder import find_current_level, select_level_interactive, list_levels, get_game_framerate
 
 try:
     from src.overlay import StatusOverlay
@@ -214,10 +214,10 @@ def main():
     parser.add_argument(
         "--min-gap",
         type=float,
-        default=16.0,
-        help="연속 입력 최소 간격 (ms, 기본: 16). 같은 시각에 몰린 타일(동타)을 "
-             "별도 프레임으로 벌려 게임이 모두 인식하게 함. 144Hz 등 고주사율이면 "
-             "8~10으로 줄여도 됨",
+        default=None,
+        help="연속 입력 최소 간격 (ms). 같은 시각에 몰린 타일(동타)을 별도 프레임으로 "
+             "벌려 게임이 모두 인식하게 함. 미지정 시 게임/모니터 주사율을 자동 감지해 "
+             "한 프레임 길이로 맞춤(감지 실패 시 16ms). 144Hz면 자동으로 ~8ms가 됨",
     )
     parser.add_argument(
         "--countdown",
@@ -325,6 +325,20 @@ def main():
     if args.start_tile > 0:
         print(f"[*] 타일 {args.start_tile}번부터 재생합니다 (구간 연습)")
 
+    # 최소 입력 간격(--min-gap): 미지정 시 게임/모니터 주사율을 자동 감지해
+    # 한 프레임 길이로 맞춘다. 빠른 구간(동타/삼각형/트월) 입력 누락 방지.
+    min_gap_ms = args.min_gap
+    if min_gap_ms is None:
+        fps = get_game_framerate()
+        if fps:
+            min_gap_ms = (1000.0 / fps) * 1.1  # 한 프레임보다 살짝 길게(지터 여유)
+            print(f"[*] 주사율 {fps}Hz 감지 → 최소 입력 간격 {min_gap_ms:.1f}ms 자동 설정 "
+                  f"(바꾸려면 --min-gap)")
+        else:
+            min_gap_ms = 16.0
+            print(f"[*] 주사율 자동 감지 실패 → 최소 입력 간격 {min_gap_ms:.1f}ms 사용 "
+                  f"(60Hz 기준, 고주사율이면 --min-gap 8 권장)")
+
     controller = MacroController(
         level=level,
         keys=[k.strip() for k in args.key.split(",") if k.strip()],
@@ -334,7 +348,7 @@ def main():
         toggle_key=args.toggle_key,
         quit_key=args.quit_key,
         start_tile=args.start_tile,
-        min_gap_ms=args.min_gap,
+        min_gap_ms=min_gap_ms,
     )
     controller.run()
 

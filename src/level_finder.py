@@ -164,6 +164,69 @@ def _read_pref_string(key, name_prefix: str) -> str | None:
     return None
 
 
+def _read_pref_int(key, name_prefix: str) -> int | None:
+    """열린 레지스트리 키에서 name_prefix로 시작하는 DWORD 값을 정수로 읽습니다."""
+    import winreg
+
+    i = 0
+    while True:
+        try:
+            name, data, _vtype = winreg.EnumValue(key, i)
+        except OSError:
+            break
+        i += 1
+        if not name.startswith(name_prefix):
+            continue
+        try:
+            return int(data)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def get_game_framerate() -> int | None:
+    """
+    Windows 레지스트리에서 ADOFAI가 렌더링하는 프레임레이트(Hz)를 추정합니다.
+
+    ADOFAI(Unity)는 프레임마다 입력을 한 번 폴링하므로, 한 프레임보다 짧은
+    간격으로 들어온 키 입력은 묶여서 한 번만 인식됩니다. 따라서 매크로의
+    최소 입력 간격을 이 프레임레이트에 맞추면 동타/삼각형/트월 같은 빠른
+    구간에서 입력 누락을 줄일 수 있습니다.
+
+    우선순위:
+      1. targetFramerate (게임 설정의 목표 프레임레이트)
+      2. Native RefreshRate Numerator/Denominator (모니터 주사율)
+    실패하거나 비정상 값이면 None.
+    """
+    if not sys.platform.startswith("win"):
+        return None
+
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, ADOFAI_REG_PATH)
+    except OSError:
+        return None
+
+    try:
+        target = _read_pref_int(key, "targetFramerate")
+        if target and 20 <= target <= 1000:
+            return target
+        num = _read_pref_int(key, "Screenmanager Native RefreshRate Numerator")
+        den = _read_pref_int(key, "Screenmanager Native RefreshRate Denominator")
+        if num and den:
+            rate = round(num / den)
+            if 20 <= rate <= 1000:
+                return rate
+    finally:
+        winreg.CloseKey(key)
+
+    return None
+
+
 def get_player_log_paths() -> list[Path]:
     """플랫폼별 ADOFAI Player.log 가능 경로 목록을 반환합니다."""
     home = Path.home()
