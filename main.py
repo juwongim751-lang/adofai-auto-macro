@@ -16,7 +16,8 @@ import sys
 import time
 import threading
 from pathlib import Path
-from pynput import keyboard
+# pynput은 실제 매크로 실행 시에만 필요하므로 지연 임포트한다
+# (--info 등 파싱 전용 기능은 X 디스플레이 없이도 동작).
 
 from src.level_parser import parse_level, print_level_info, LevelData
 from src.auto_player import AutoPlayer
@@ -148,6 +149,7 @@ class MacroController:
         if self.overlay:
             self.overlay.start()
 
+        from pynput import keyboard
         listener = keyboard.Listener(on_press=self._on_key_press)
         listener.start()
 

@@ -69,6 +69,16 @@ def find_level_from_registry() -> Path | None:
     return None
 
 
+def _decode_pref_bytes(data) -> str:
+    """
+    Unity PlayerPrefs 레지스트리 값(REG_BINARY: UTF-8 문자열 + 끝에 null)을
+    문자열로 디코딩합니다. bytes가 아니면 str로 변환합니다.
+    """
+    if isinstance(data, (bytes, bytearray)):
+        return bytes(data).split(b"\x00", 1)[0].decode("utf-8", errors="ignore").strip()
+    return str(data).strip()
+
+
 def _read_pref_string(key, name_prefix: str) -> str | None:
     """열린 레지스트리 키에서 name_prefix로 시작하는 값을 찾아 UTF-8 문자열로 디코딩합니다."""
     import winreg
@@ -82,12 +92,7 @@ def _read_pref_string(key, name_prefix: str) -> str | None:
         i += 1
         if not name.startswith(name_prefix):
             continue
-        # Unity는 문자열을 REG_BINARY(UTF-8, 끝에 null)로 저장한다.
-        if isinstance(data, bytes):
-            text = data.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
-        else:
-            text = str(data)
-        return text.strip()
+        return _decode_pref_bytes(data)
     return None
 
 

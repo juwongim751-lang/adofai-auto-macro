@@ -4,17 +4,30 @@
 
 import time
 import threading
-from pynput.keyboard import Controller, Key
 
 from src.level_parser import LevelData, TileHit
+
+# pynput은 실제 키 입력 시에만 필요하므로 지연 임포트한다.
+# (파싱/테스트는 X 디스플레이 없는 환경에서도 동작해야 한다.)
+
+# 특수키 이름 → pynput Key 속성 이름
+SPECIAL_KEY_NAMES = {
+    "space": "space",
+    "enter": "enter",
+    "tab": "tab",
+    "shift": "shift",
+    "ctrl": "ctrl",
+    "alt": "alt",
+    "esc": "esc",
+    "up": "up",
+    "down": "down",
+    "left": "left",
+    "right": "right",
+}
 
 
 class AutoPlayer:
     """.adofai 레벨의 타일 타이밍에 맞춰 자동으로 키를 입력하는 클래스."""
-
-    SPECIAL_KEYS = {
-        "space": Key.space,
-    }
 
     def __init__(self, keys="space"):
         """
@@ -23,7 +36,7 @@ class AutoPlayer:
                   (["w", "f", "o", "j"]). 여러 개면 타일마다 번갈아 눌러
                   같은 키 연타를 피한다 (게임의 채터 블로커 회피).
         """
-        self.keyboard = Controller()
+        self.keyboard = None  # 첫 입력 시 지연 생성
         self.keys = self._normalize_keys(keys)
         self._key_idx = 0
 
@@ -44,7 +57,7 @@ class AutoPlayer:
         self._progress_callback = callback
 
     def _normalize_keys(self, keys) -> list:
-        """키 설정을 pynput이 쓸 수 있는 리스트로 변환합니다."""
+        """키 설정을 정규화된 문자열 리스트로 변환합니다 (빈 값 제거, 소문자)."""
         if isinstance(keys, str):
             keys = [keys]
         normalized = []
@@ -52,15 +65,32 @@ class AutoPlayer:
             k = str(k).strip().lower()
             if not k:
                 continue
-            normalized.append(self.SPECIAL_KEYS.get(k, k))
-        return normalized or [Key.space]
+            normalized.append(k)
+        return normalized or ["space"]
+
+    def _get_keyboard(self):
+        """pynput Controller를 지연 생성합니다."""
+        if self.keyboard is None:
+            from pynput.keyboard import Controller
+            self.keyboard = Controller()
+        return self.keyboard
+
+    @staticmethod
+    def _resolve_key(name):
+        """키 이름을 pynput이 받는 값으로 변환 (일반 문자는 그대로)."""
+        if name in SPECIAL_KEY_NAMES:
+            from pynput.keyboard import Key
+            return getattr(Key, SPECIAL_KEY_NAMES[name])
+        return name
 
     def _press_key(self):
         """다음 키를 한 번 누릅니다 (여러 키면 순환)."""
-        key = self.keys[self._key_idx % len(self.keys)]
+        name = self.keys[self._key_idx % len(self.keys)]
         self._key_idx += 1
-        self.keyboard.press(key)
-        self.keyboard.release(key)
+        key = self._resolve_key(name)
+        kb = self._get_keyboard()
+        kb.press(key)
+        kb.release(key)
 
     def _wait_precise(self, target_time: float):
         """정밀한 타이밍으로 대기합니다 (busy-wait)."""
