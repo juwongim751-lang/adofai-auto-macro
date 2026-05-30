@@ -33,7 +33,41 @@ class FoundLevel:
     """탐색된 레벨 파일 정보."""
     path: Path
     mtime: float
-    source: str  # 어디서 찾았는지 (log / directory)
+    source: str  # 어디서 찾았는지 (registry / log / directory)
+
+
+# .adofai settings 블록에서 곡명/아티스트/BPM을 가볍게 뽑는 패턴
+_META_SONG = re.compile(r'"song"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_META_ARTIST = re.compile(r'"artist"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_META_BPM = re.compile(r'"bpm"\s*:\s*([0-9.]+)')
+
+
+def read_level_meta(path: Path, max_bytes: int = 1_048_576) -> dict:
+    """
+    .adofai 파일 앞부분(기본 1MB)만 읽어 곡명/아티스트/BPM을 가볍게 추출합니다.
+    settings 블록은 angleData 뒤에 오므로 타일 수가 많으면 더 뒤에 있지만,
+    1MB면 대부분의 맵을 커버하면서도 전체 파싱보다 훨씬 빠릅니다.
+    """
+    meta = {"song": "", "artist": "", "bpm": None}
+    try:
+        with open(path, "r", encoding="utf-8-sig", errors="ignore") as fh:
+            head = fh.read(max_bytes)
+    except OSError:
+        return meta
+
+    m = _META_SONG.search(head)
+    if m:
+        meta["song"] = m.group(1)
+    m = _META_ARTIST.search(head)
+    if m:
+        meta["artist"] = m.group(1)
+    m = _META_BPM.search(head)
+    if m:
+        try:
+            meta["bpm"] = float(m.group(1))
+        except ValueError:
+            pass
+    return meta
 
 
 def find_level_from_registry() -> Path | None:
@@ -67,6 +101,40 @@ def find_level_from_registry() -> Path | None:
     if candidate.exists() and candidate.suffix.lower() == ".adofai":
         return candidate
     return None
+
+
+def find_level_from_registry_folder() -> Path | None:
+    """
+    레지스트리 lastUsedFolder(마지막으로 사용한 폴더)에서 가장 최근에 수정된
+    .adofai 파일을 찾습니다. lastOpenedLevel이 비어있을 때의 보조 수단입니다.
+    """
+    if not sys.platform.startswith("win"):
+        return None
+
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, ADOFAI_REG_PATH)
+    except OSError:
+        return None
+
+    try:
+        folder = _read_pref_string(key, LAST_FOLDER_KEY_PREFIX)
+    finally:
+        winreg.CloseKey(key)
+
+    if not folder:
+        return None
+
+    folder_path = Path(folder)
+    if not folder_path.is_dir():
+        return None
+
+    levels = find_levels_in_dirs([folder_path], limit=1)
+    return levels[0].path if levels else None
 
 
 def _decode_pref_bytes(data) -> str:
@@ -203,12 +271,17 @@ def find_current_level(extra_dirs: list[str] | None = None) -> Path | None:
     if from_reg:
         return from_reg
 
-    # 2순위: Player.log
+    # 2순위: 레지스트리 lastUsedFolder의 최근 맵 (lastOpenedLevel이 비었을 때)
+    from_reg_folder = find_level_from_registry_folder()
+    if from_reg_folder:
+        return from_reg_folder
+
+    # 3순위: Player.log
     from_log = find_level_from_log()
     if from_log:
         return from_log
 
-    # 3순위: 디렉토리에서 가장 최근 파일
+    # 4순위: 디렉토리에서 가장 최근 파일
     dirs = get_default_level_dirs()
     if extra_dirs:
         dirs.extend(Path(d) for d in extra_dirs if Path(d).exists())
@@ -220,12 +293,10 @@ def find_current_level(extra_dirs: list[str] | None = None) -> Path | None:
     return None
 
 
-def select_level_interactive(extra_dirs: list[str] | None = None) -> Path | None:
+def gather_candidate_levels(extra_dirs: list[str] | None = None) -> list[FoundLevel]:
     """
-    탐색된 레벨 목록을 보여주고 사용자가 선택하게 합니다.
-
-    Returns:
-        선택된 .adofai 파일 경로, 취소 시 None.
+    탐색 가능한 레벨 후보를 우선순위 순으로 모아 중복 없이 반환합니다.
+    (레지스트리 → 레지스트리 폴더 → Player.log → 디렉토리 스캔)
     """
     dirs = get_default_level_dirs()
     if extra_dirs:
@@ -233,39 +304,71 @@ def select_level_interactive(extra_dirs: list[str] | None = None) -> Path | None
 
     levels = find_levels_in_dirs(dirs)
 
-    # Player.log 결과를 맨 위에 추가
-    from_log = find_level_from_log()
-    if from_log:
-        levels.insert(0, FoundLevel(
-            path=from_log,
-            mtime=from_log.stat().st_mtime if from_log.exists() else 0,
-            source="log (현재 로드됨)",
-        ))
+    def _prepend(path: Path | None, source: str):
+        nonlocal levels
+        if not path or not path.exists():
+            return
+        levels = [lv for lv in levels if lv.path.resolve() != path.resolve()]
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0
+        levels.insert(0, FoundLevel(path=path, mtime=mtime, source=source))
 
-    # 레지스트리 결과를 가장 위에 추가 (가장 정확)
-    from_reg = find_level_from_registry()
-    if from_reg:
-        # 중복 제거
-        levels = [lv for lv in levels if lv.path.resolve() != from_reg.resolve()]
-        levels.insert(0, FoundLevel(
-            path=from_reg,
-            mtime=from_reg.stat().st_mtime if from_reg.exists() else 0,
-            source="registry (마지막으로 연 맵)",
-        ))
+    # 아래에서 위 순서로 prepend → 최종적으로 레지스트리가 맨 위
+    _prepend(find_level_from_log(), "log (현재 로드됨)")
+    _prepend(find_level_from_registry_folder(), "registry folder (최근 폴더)")
+    _prepend(find_level_from_registry(), "registry (마지막으로 연 맵)")
+    return levels
 
+
+def _format_level_line(idx: int, level: FoundLevel) -> list[str]:
+    """목록 한 항목을 곡명/BPM 등 메타와 함께 여러 줄 문자열로 만듭니다."""
+    marker = " *" if level.source.startswith(("registry", "log")) else "  "
+    meta = read_level_meta(level.path)
+    bits = []
+    if meta.get("song"):
+        bits.append(meta["song"])
+    if meta.get("artist"):
+        bits.append(f"by {meta['artist']}")
+    if meta.get("bpm") is not None:
+        bits.append(f"BPM {meta['bpm']:g}")
+    meta_str = "  ·  ".join(bits) if bits else "(메타 정보 없음)"
+    return [
+        f"  {marker}[{idx:>2}] {level.path.name}",
+        f"        {meta_str}",
+        f"        ({level.source}) {level.path.parent}",
+    ]
+
+
+def list_levels(extra_dirs: list[str] | None = None) -> list[FoundLevel]:
+    """탐색된 레벨 목록을 곡명/BPM과 함께 출력합니다 (선택 없이 보기 전용)."""
+    levels = gather_candidate_levels(extra_dirs)
     if not levels:
         print("[!] .adofai 파일을 찾을 수 없습니다.")
         print("    --dir 옵션으로 레벨 폴더를 직접 지정해보세요.")
-        return None
+        return []
 
     print("\n  탐색된 레벨 목록:")
     print("  " + "-" * 60)
     for i, level in enumerate(levels):
-        marker = " *" if level.source.startswith("log") else "  "
-        print(f"  {marker}[{i + 1:>2}] {level.path.name}")
-        print(f"        ({level.source}) {level.path.parent}")
+        for line in _format_level_line(i + 1, level):
+            print(line)
     print("  " + "-" * 60)
     print("  * = 현재 게임에서 로드된 것으로 추정되는 레벨")
+    return levels
+
+
+def select_level_interactive(extra_dirs: list[str] | None = None) -> Path | None:
+    """
+    탐색된 레벨 목록을 보여주고 사용자가 선택하게 합니다.
+
+    Returns:
+        선택된 .adofai 파일 경로, 취소 시 None.
+    """
+    levels = list_levels(extra_dirs)
+    if not levels:
+        return None
 
     try:
         choice = input("\n  선택할 번호 (Enter = 1번): ").strip()

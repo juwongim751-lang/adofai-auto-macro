@@ -40,3 +40,58 @@ def test_find_from_registry_non_windows(monkeypatch):
     # 비윈도우 환경에서는 항상 None
     monkeypatch.setattr(level_finder.sys, "platform", "linux")
     assert level_finder.find_level_from_registry() is None
+
+
+def test_find_from_registry_folder_non_windows(monkeypatch):
+    monkeypatch.setattr(level_finder.sys, "platform", "linux")
+    assert level_finder.find_level_from_registry_folder() is None
+
+
+def _write_level(path, song="My Song", artist="Artist X", bpm=150):
+    # angleData를 길게 넣어 settings가 앞부분 16KB 밖에 오도록(읽기 범위 검증) 해도 됨
+    angles = ", ".join(["0"] * 50)
+    path.write_text(
+        '{\n"angleData": [' + angles + '],\n'
+        '"settings": {"song": "' + song + '", "artist": "' + artist + '", "bpm": ' + str(bpm) + '},\n'
+        '"actions": []\n}',
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_read_level_meta_extracts_song_artist_bpm(tmp_path):
+    f = _write_level(tmp_path / "a.adofai", song="Hello", artist="Camellia", bpm=222.5)
+    meta = level_finder.read_level_meta(f)
+    assert meta["song"] == "Hello"
+    assert meta["artist"] == "Camellia"
+    assert meta["bpm"] == 222.5
+
+
+def test_read_level_meta_missing_file(tmp_path):
+    meta = level_finder.read_level_meta(tmp_path / "nope.adofai")
+    assert meta == {"song": "", "artist": "", "bpm": None}
+
+
+def test_gather_candidate_levels_from_dir(tmp_path, monkeypatch):
+    # 레지스트리/로그는 비활성화하고 디렉토리 스캔만 검증
+    monkeypatch.setattr(level_finder, "find_level_from_registry", lambda: None)
+    monkeypatch.setattr(level_finder, "find_level_from_registry_folder", lambda: None)
+    monkeypatch.setattr(level_finder, "find_level_from_log", lambda: None)
+    monkeypatch.setattr(level_finder, "get_default_level_dirs", lambda: [])
+    _write_level(tmp_path / "one.adofai")
+    levels = level_finder.gather_candidate_levels([str(tmp_path)])
+    assert len(levels) == 1
+    assert levels[0].path.name == "one.adofai"
+
+
+def test_list_levels_prints_meta(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(level_finder, "find_level_from_registry", lambda: None)
+    monkeypatch.setattr(level_finder, "find_level_from_registry_folder", lambda: None)
+    monkeypatch.setattr(level_finder, "find_level_from_log", lambda: None)
+    monkeypatch.setattr(level_finder, "get_default_level_dirs", lambda: [])
+    _write_level(tmp_path / "song.adofai", song="TestSong", bpm=180)
+    level_finder.list_levels([str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "song.adofai" in out
+    assert "TestSong" in out
+    assert "BPM 180" in out

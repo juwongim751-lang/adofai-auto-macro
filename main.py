@@ -21,7 +21,7 @@ from pathlib import Path
 
 from src.level_parser import parse_level, print_level_info, print_timing_table, LevelData
 from src.auto_player import AutoPlayer
-from src.level_finder import find_current_level, select_level_interactive
+from src.level_finder import find_current_level, select_level_interactive, list_levels
 
 try:
     from src.overlay import StatusOverlay
@@ -188,6 +188,11 @@ def main():
         help="탐색된 맵 목록에서 직접 선택",
     )
     parser.add_argument(
+        "--list", "-l",
+        action="store_true",
+        help="탐색된 맵 목록(곡명·BPM)만 출력하고 종료",
+    )
+    parser.add_argument(
         "--dir",
         action="append",
         default=[],
@@ -244,6 +249,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # 목록만 보기 (선택/실행 없이 종료)
+    if args.list:
+        list_levels(args.dir)
+        return
 
     # 레벨 파일 결정: 직접 지정 > 목록 선택 > 자동 탐색
     level_path = args.level_file
