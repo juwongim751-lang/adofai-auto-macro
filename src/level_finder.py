@@ -2,9 +2,10 @@
 레벨 자동 탐색 모듈 - 현재 플레이 중인 .adofai 맵을 자동으로 찾습니다.
 
 탐색 전략 (우선순위 순):
-  1. ADOFAI Player.log에서 최근 로드된 .adofai 경로 추출
-  2. 알려진 커스텀 레벨 디렉토리에서 가장 최근에 수정/접근된 .adofai 파일
-  3. 사용자가 직접 목록에서 선택
+  1. Windows 레지스트리(Unity PlayerPrefs)의 lastOpenedLevel = 마지막으로 연 맵 (가장 정확)
+  2. ADOFAI Player.log에서 최근 로드된 .adofai 경로 추출
+  3. 알려진 커스텀 레벨 디렉토리에서 가장 최근에 수정된 .adofai 파일
+  4. 사용자가 직접 목록에서 선택
 """
 
 import os
@@ -17,6 +18,12 @@ from dataclasses import dataclass
 # Steam 워크샵 ADOFAI App ID
 ADOFAI_APP_ID = "977950"
 
+# Unity PlayerPrefs 레지스트리 경로 (Windows)
+ADOFAI_REG_PATH = r"Software\7th Beat Games\A Dance of Fire and Ice"
+# Unity는 PlayerPrefs 키 이름 뒤에 _h<해시>를 붙여 저장하므로 접두사로 매칭한다.
+LAST_LEVEL_KEY_PREFIX = "lastOpenedLevel"
+LAST_FOLDER_KEY_PREFIX = "lastUsedFolder"
+
 # Player.log 라인에서 .adofai 경로를 찾기 위한 패턴
 ADOFAI_PATH_PATTERN = re.compile(r'([A-Za-z]:[\\/].*?\.adofai|/.*?\.adofai)', re.IGNORECASE)
 
@@ -27,6 +34,61 @@ class FoundLevel:
     path: Path
     mtime: float
     source: str  # 어디서 찾았는지 (log / directory)
+
+
+def find_level_from_registry() -> Path | None:
+    """
+    Windows 레지스트리의 Unity PlayerPrefs에서 마지막으로 연 레벨 경로를 읽습니다.
+    HKCU\\Software\\7th Beat Games\\A Dance of Fire and Ice 의
+    lastOpenedLevel_h<해시> 값(UTF-8 바이너리)을 디코딩합니다.
+    """
+    if not sys.platform.startswith("win"):
+        return None
+
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, ADOFAI_REG_PATH)
+    except OSError:
+        return None
+
+    try:
+        value = _read_pref_string(key, LAST_LEVEL_KEY_PREFIX)
+    finally:
+        winreg.CloseKey(key)
+
+    if not value:
+        return None
+
+    candidate = Path(value)
+    if candidate.exists() and candidate.suffix.lower() == ".adofai":
+        return candidate
+    return None
+
+
+def _read_pref_string(key, name_prefix: str) -> str | None:
+    """열린 레지스트리 키에서 name_prefix로 시작하는 값을 찾아 UTF-8 문자열로 디코딩합니다."""
+    import winreg
+
+    i = 0
+    while True:
+        try:
+            name, data, _vtype = winreg.EnumValue(key, i)
+        except OSError:
+            break
+        i += 1
+        if not name.startswith(name_prefix):
+            continue
+        # Unity는 문자열을 REG_BINARY(UTF-8, 끝에 null)로 저장한다.
+        if isinstance(data, bytes):
+            text = data.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
+        else:
+            text = str(data)
+        return text.strip()
+    return None
 
 
 def get_player_log_paths() -> list[Path]:
@@ -131,12 +193,17 @@ def find_current_level(extra_dirs: list[str] | None = None) -> Path | None:
     Returns:
         찾은 .adofai 파일 경로, 없으면 None.
     """
-    # 1순위: Player.log
+    # 1순위: 레지스트리(마지막으로 연 맵) - 가장 정확
+    from_reg = find_level_from_registry()
+    if from_reg:
+        return from_reg
+
+    # 2순위: Player.log
     from_log = find_level_from_log()
     if from_log:
         return from_log
 
-    # 2순위: 디렉토리에서 가장 최근 파일
+    # 3순위: 디렉토리에서 가장 최근 파일
     dirs = get_default_level_dirs()
     if extra_dirs:
         dirs.extend(Path(d) for d in extra_dirs if Path(d).exists())
@@ -168,6 +235,17 @@ def select_level_interactive(extra_dirs: list[str] | None = None) -> Path | None
             path=from_log,
             mtime=from_log.stat().st_mtime if from_log.exists() else 0,
             source="log (현재 로드됨)",
+        ))
+
+    # 레지스트리 결과를 가장 위에 추가 (가장 정확)
+    from_reg = find_level_from_registry()
+    if from_reg:
+        # 중복 제거
+        levels = [lv for lv in levels if lv.path.resolve() != from_reg.resolve()]
+        levels.insert(0, FoundLevel(
+            path=from_reg,
+            mtime=from_reg.stat().st_mtime if from_reg.exists() else 0,
+            source="registry (마지막으로 연 맵)",
         ))
 
     if not levels:
