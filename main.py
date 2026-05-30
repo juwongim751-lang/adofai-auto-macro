@@ -182,12 +182,17 @@ def main():
         "level_file",
         nargs="?",
         default=None,
-        help=".adofai 레벨 파일 경로 (생략 시 현재 플레이 중인 맵 자동 탐색)",
+        help=".adofai 레벨 파일 경로 (생략 시 맵 목록에서 직접 선택)",
     )
     parser.add_argument(
         "--select", "-s",
         action="store_true",
-        help="탐색된 맵 목록에서 직접 선택",
+        help="탐색된 맵 목록에서 직접 선택 (파일 경로 생략 시 기본 동작)",
+    )
+    parser.add_argument(
+        "--auto", "-a",
+        action="store_true",
+        help="목록 선택 대신 현재 플레이 중인 맵을 자동 탐색 (레지스트리/로그)",
     )
     parser.add_argument(
         "--list", "-l",
@@ -278,22 +283,23 @@ def main():
     level_path = args.level_file
 
     if level_path is None:
-        if args.select:
+        if args.auto:
+            print("[*] 현재 플레이 중인 맵 자동 탐색 중...")
+            found = find_current_level(args.dir)
+            if found is None:
+                print("[!] 자동으로 맵을 찾지 못했습니다.")
+                print("    옵션 없이 실행하면 목록에서 직접 고를 수 있습니다.")
+                sys.exit(1)
+            level_path = str(found)
+            print(f"[*] 자동 탐색된 맵: {found.name}")
+        else:
+            # 기본 동작: 맵 목록에서 직접 선택 (--auto 면 자동 탐색)
             print("[*] 레벨 탐색 중...")
             selected = select_level_interactive(args.dir)
             if selected is None:
                 print("[!] 레벨을 선택하지 않았습니다. 종료합니다.")
                 sys.exit(1)
             level_path = str(selected)
-        else:
-            print("[*] 현재 플레이 중인 맵 자동 탐색 중...")
-            found = find_current_level(args.dir)
-            if found is None:
-                print("[!] 자동으로 맵을 찾지 못했습니다.")
-                print("    --select 옵션으로 목록에서 선택하거나, 파일 경로를 직접 지정하세요.")
-                sys.exit(1)
-            level_path = str(found)
-            print(f"[*] 자동 탐색된 맵: {found.name}")
 
     # 레벨 파일 파싱
     print(f"[*] 레벨 파일 로딩: {level_path}")

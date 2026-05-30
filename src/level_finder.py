@@ -39,7 +39,12 @@ class FoundLevel:
 # .adofai settings 블록에서 곡명/아티스트/BPM을 가볍게 뽑는 패턴
 _META_SONG = re.compile(r'"song"\s*:\s*"((?:[^"\\]|\\.)*)"')
 _META_ARTIST = re.compile(r'"artist"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_META_AUTHOR = re.compile(r'"author"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_META_SONGFILE = re.compile(r'"songFilename"\s*:\s*"((?:[^"\\]|\\.)*)"')
 _META_BPM = re.compile(r'"bpm"\s*:\s*([0-9.]+)')
+
+# main.adofai / level.adofai 처럼 파일명만으론 구분이 안 되는 일반 이름들
+_GENERIC_FILENAMES = {"main.adofai", "level.adofai", "song.adofai"}
 
 
 def read_level_meta(path: Path, max_bytes: int = 1_048_576) -> dict:
@@ -57,10 +62,21 @@ def read_level_meta(path: Path, max_bytes: int = 1_048_576) -> dict:
 
     m = _META_SONG.search(head)
     if m:
-        meta["song"] = m.group(1)
+        meta["song"] = m.group(1).strip()
+    # song이 비어있으면 songFilename(예: "Hello.mp3")을 곡명 대용으로 쓴다.
+    if not meta["song"]:
+        m = _META_SONGFILE.search(head)
+        if m:
+            name = m.group(1).strip()
+            name = re.sub(r"\.(mp3|ogg|wav|flac|m4a)$", "", name, flags=re.IGNORECASE)
+            meta["song"] = name.strip()
     m = _META_ARTIST.search(head)
     if m:
-        meta["artist"] = m.group(1)
+        meta["artist"] = m.group(1).strip()
+    if not meta["artist"]:
+        m = _META_AUTHOR.search(head)
+        if m:
+            meta["artist"] = m.group(1).strip()
     m = _META_BPM.search(head)
     if m:
         try:
@@ -68,6 +84,24 @@ def read_level_meta(path: Path, max_bytes: int = 1_048_576) -> dict:
         except ValueError:
             pass
     return meta
+
+
+def level_display_name(level: "FoundLevel", meta: dict | None = None) -> str:
+    """목록에 보여줄 사람친화된 맵 이름을 정합니다.
+
+    우선순위: 곡명(메타) → 파일명이 일반명(main.adofai 등)이면 상위 폴더명 → 파일명(확장자 제외).
+    메타가 비어 있더라도 항상 의미 있는 이름을 돌려준다.
+    """
+    if meta is None:
+        meta = read_level_meta(level.path)
+    song = (meta.get("song") or "").strip()
+    if song:
+        return song
+    if level.path.name.lower() in _GENERIC_FILENAMES:
+        parent = level.path.parent.name
+        if parent:
+            return parent
+    return level.path.stem
 
 
 def find_level_from_registry() -> Path | None:
@@ -389,16 +423,16 @@ def _format_level_line(idx: int, level: FoundLevel) -> list[str]:
     """목록 한 항목을 곡명/BPM 등 메타와 함께 여러 줄 문자열로 만듭니다."""
     marker = " *" if level.source.startswith(("registry", "log")) else "  "
     meta = read_level_meta(level.path)
+    title = level_display_name(level, meta)
     bits = []
-    if meta.get("song"):
-        bits.append(meta["song"])
     if meta.get("artist"):
         bits.append(f"by {meta['artist']}")
     if meta.get("bpm") is not None:
         bits.append(f"BPM {meta['bpm']:g}")
-    meta_str = "  ·  ".join(bits) if bits else "(메타 정보 없음)"
+    bits.append(level.path.name)  # 파일명도 같이 (구분용)
+    meta_str = "  ·  ".join(bits)
     return [
-        f"  {marker}[{idx:>2}] {level.path.name}",
+        f"  {marker}[{idx:>2}] {title}",
         f"        {meta_str}",
         f"        ({level.source}) {level.path.parent}",
     ]

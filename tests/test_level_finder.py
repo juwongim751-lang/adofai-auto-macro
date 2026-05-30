@@ -100,3 +100,38 @@ def test_list_levels_prints_meta(tmp_path, monkeypatch, capsys):
     assert "song.adofai" in out
     assert "TestSong" in out
     assert "BPM 180" in out
+
+
+def test_display_name_uses_song_when_present(tmp_path):
+    f = _write_level(tmp_path / "main.adofai", song="Cool Song")
+    lv = level_finder.FoundLevel(path=f, mtime=0, source="directory")
+    assert level_finder.level_display_name(lv) == "Cool Song"
+
+
+def test_display_name_falls_back_to_folder_for_generic_filename(tmp_path):
+    # song 메타가 비어 있고 파일명이 일반명(main.adofai)이면 폴더명을 쓴다
+    folder = tmp_path / "HELLO (BPM) 2026"
+    folder.mkdir()
+    f = _write_level(folder / "main.adofai", song="", artist="")
+    lv = level_finder.FoundLevel(path=f, mtime=0, source="directory")
+    assert level_finder.level_display_name(lv) == "HELLO (BPM) 2026"
+
+
+def test_display_name_falls_back_to_filename_stem(tmp_path):
+    # 일반명이 아닌 파일명이면 곡명이 없을 때 파일명(확장자 제외)을 쓴다
+    f = _write_level(tmp_path / "My Cool Map.adofai", song="")
+    lv = level_finder.FoundLevel(path=f, mtime=0, source="directory")
+    assert level_finder.level_display_name(lv) == "My Cool Map"
+
+
+def test_read_level_meta_songfilename_fallback(tmp_path):
+    # song이 비어 있으면 songFilename에서 확장자를 떼고 곡명으로 쓴다
+    path = tmp_path / "x.adofai"
+    path.write_text(
+        '{\n"angleData": [0, 0],\n'
+        '"settings": {"song": "", "songFilename": "Hello (BPM).mp3", "bpm": 200},\n'
+        '"actions": []\n}',
+        encoding="utf-8",
+    )
+    meta = level_finder.read_level_meta(path)
+    assert meta["song"] == "Hello (BPM)"
