@@ -7,7 +7,7 @@
 ## 동작 원리
 
 1. **현재 플레이 중인 맵을 자동으로 탐색** (파일 경로를 직접 입력할 필요 없음)
-2. `.adofai` 레벨 파일에서 **타일 각도(angleData/pathData)**, **BPM**, **SetSpeed**, **Twirl**, **Pause**, **AutoPlayTiles** 이벤트를 파싱
+2. `.adofai` 레벨 파일에서 **타일 각도(angleData/pathData)**, **BPM**, **SetSpeed**, **Twirl**, **Pause**, **AutoPlayTiles**, **Hold(롱노트)** 이벤트를 파싱
 3. 각 타일의 상대 각도를 계산하여 정확한 입력 타이밍(ms)을 산출
 4. 게임 내에서 계산된 타이밍에 맞춰 자동으로 키를 입력
 
@@ -16,9 +16,10 @@
 파일을 직접 지정하지 않으면 다음 순서로 현재 맵을 찾습니다:
 
 1. **Windows 레지스트리(`lastOpenedLevel`)** — 게임이 마지막으로 연 맵 경로. **가장 정확** (Unity PlayerPrefs에 저장됨)
-2. **ADOFAI Player.log 분석** — 로그에 `.adofai` 경로가 남아 있으면 추출 (※ 버전에 따라 안 남을 수 있음)
-3. **레벨 폴더 스캔** — Steam 워크샵 / 커스텀 레벨 폴더에서 가장 최근에 수정된 `.adofai` 파일
-4. **목록 선택** — `--select` 옵션으로 탐색된 맵 목록에서 직접 선택
+2. **Windows 레지스트리(`lastUsedFolder`)** — 마지막으로 사용한 폴더 안에서 가장 최근에 수정된 `.adofai` (워크샵 맵 등 `lastOpenedLevel`이 비었을 때의 보조 수단)
+3. **ADOFAI Player.log 분석** — 로그에 `.adofai` 경로가 남아 있으면 추출 (※ 버전에 따라 안 남을 수 있음)
+4. **레벨 폴더 스캔** — Steam 워크샵 / 커스텀 레벨 폴더에서 가장 최근에 수정된 `.adofai` 파일
+5. **목록 선택** — `--select`(직접 선택) / `--list`(목록만 보기) 옵션으로 탐색된 맵을 곡명·BPM과 함께 확인
 
 > 게임에서 평소 하던 맵을 **한 번 연 직후** 매크로를 실행하면 레지스트리 값으로 정확히 그 맵을 찾습니다. 스팀 워크샵 맵을 게임 내 목록에서 바로 플레이하는 경우 레지스트리가 갱신되지 않을 수 있으니, 이때는 `--select`로 고르세요.
 
@@ -40,6 +41,7 @@
 | 미드스핀(999) | ✅ | 미드스핀 타일 |
 | `Pause` | ✅ | 멈춤 구간 → 이후 타일 타이밍 전체 보정 |
 | `AutoPlayTiles` | ✅ | 게임이 자동으로 치는 구간은 매크로가 입력하지 않음 |
+| `Hold` | ✅ | 롱노트: 시작 타일에서 키를 누른 채 duration 타일만큼 유지 후 자동 해제 (유지 구간 타일은 입력 제외) |
 | `RepeatEvents` | N/A | 장식(MoveDecorations) 반복만 하므로 게임플레이 타이밍에 영향 없음 |
 
 ## 기능
@@ -48,8 +50,11 @@
 - **.adofai 파일 파싱**: angleData, pathData 모두 지원
 - **BPM 변경 지원**: SetSpeed 이벤트(Bpm / Multiplier) 자동 반영
 - **Twirl / 미드스핀 지원**: 회전 반전·미드스핀 타일 자동 처리
-- **Pause / AutoPlayTiles 지원**: 멈춤 구간 타이밍 보정, 자동 재생 구간 입력 제외
+- **Pause / AutoPlayTiles / Hold 지원**: 멈춤 구간 타이밍 보정, 자동 재생 구간 입력 제외, 롱노트 누름 유지/자동 해제
 - **다중 키 순환 입력**: 기본 `QWERTYUIOP` 10키를 번갈아 눌러 게임의 채터 블로커 회피
+- **드라이런(`--dry-run`)**: 키 입력 없이 타일별 타이밍 표만 출력해 안전하게 검증
+- **구간 연습(`--start-tile N`)**: 특정 타일 번호부터 재생 시작
+- **맵 목록 보기(`--list`)**: 탐색된 맵을 곡명·BPM과 함께 한눈에 확인
 - **정밀 타이밍**: busy-wait 기반 고정밀 키 입력
 - **카운트다운 / 상태 오버레이 / 핫키 제어**: F6(시작/중지), F8(종료)
 
@@ -81,6 +86,9 @@ pip install -r requirements.txt
 # 현재 플레이 중인 맵을 자동으로 찾아서 실행 (파일 경로 입력 불필요)
 python main.py
 
+# 탐색된 맵 목록(곡명·BPM)만 출력하고 종료
+python main.py --list
+
 # 탐색된 맵 목록에서 직접 선택
 python main.py --select
 
@@ -111,6 +119,13 @@ python main.py --countdown 5
 
 # 레벨 정보만 출력
 python main.py --info
+
+# 키 입력 없이 타일별 타이밍 표만 출력 (안전 검증)
+python main.py --dry-run
+python main.py --dry-run --start-tile 500   # 500번 타일부터 표시
+
+# 특정 타일 번호부터 재생 시작 (구간 연습)
+python main.py --start-tile 500
 
 # 오버레이 비활성화
 python main.py --no-overlay
@@ -162,7 +177,7 @@ pip install -r requirements-dev.txt   # pytest + adofaipy 포함
 pytest
 ```
 
-각도 계산은 `adofaipy`와 무작위 합성 맵으로 교차검증되며, Pause/AutoPlayTiles/SetSpeed 타이밍과 키 순환·자동타일 건너뛰기도 테스트합니다.
+각도 계산은 `adofaipy`와 무작위 합성 맵으로 교차검증되며, Pause/AutoPlayTiles/SetSpeed/Hold 타이밍과 키 순환·자동타일/홀드 건너뛰기·구간 시작(`--start-tile`)·맵 메타 추출(`--list`)도 테스트합니다 (총 58개 테스트).
 
 ## 프로젝트 구조
 
