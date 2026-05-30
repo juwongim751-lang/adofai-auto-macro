@@ -59,16 +59,50 @@ class LevelData:
     author: str = ""
 
 
+def _strip_control_chars(raw: str) -> str:
+    """
+    JSON 문자열 값 안에 들어있는 비허용 제어문자(0x00-0x1F)를 공백으로 치환합니다.
+    문자열 밖의 정상 공백(\\n, \\r, \\t)은 그대로 둡니다.
+    """
+    out = []
+    in_string = False
+    escaped = False
+    for ch in raw:
+        if in_string:
+            if escaped:
+                escaped = False
+                out.append(ch)
+                continue
+            if ch == "\\":
+                escaped = True
+                out.append(ch)
+                continue
+            if ch == '"':
+                in_string = False
+                out.append(ch)
+                continue
+            # 문자열 안의 제어문자는 공백으로 치환
+            if ord(ch) < 0x20:
+                out.append(" ")
+                continue
+            out.append(ch)
+        else:
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+    return "".join(out)
+
+
 def _fix_adofai_json(raw: str) -> str:
     """
     .adofai 파일은 표준 JSON이 아닌 경우가 많습니다.
     - 마지막 쉼표(trailing comma) 제거
-    - 주석 제거
+    - 문자열 안 제어문자 정리
     """
-    # 주석 제거
-    raw = re.sub(r'//.*', '', raw)
     # trailing comma 제거 (}, 또는 ], 앞의 쉼표)
     raw = re.sub(r',\s*([\]}])', r'\1', raw)
+    # 문자열 내 제어문자 정리
+    raw = _strip_control_chars(raw)
     return raw
 
 
@@ -131,7 +165,7 @@ def parse_level(filepath: str) -> LevelData:
     fixed = _fix_adofai_json(raw)
 
     try:
-        data = json.loads(fixed)
+        data = json.loads(fixed, strict=False)
     except json.JSONDecodeError as e:
         raise ValueError(f".adofai 파일 파싱 실패: {e}")
 
