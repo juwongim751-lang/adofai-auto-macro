@@ -138,6 +138,38 @@ def test_min_gap_spaces_out_presses():
     assert press_times[1] - press_times[0] >= 0.018
 
 
+def test_offset_shifts_press_time():
+    """--offset(ms)만큼 입력 시각이 전체적으로 밀려야 한다."""
+    import time as _time
+
+    def _run(offset_ms):
+        lvl = LevelData(bpm=120, offset=0)
+        lvl.tiles = [
+            TileHit(index=0, time_ms=0, bpm=120, angle=0),
+            TileHit(index=1, time_ms=100, bpm=120, angle=180),
+        ]
+        ap = AutoPlayer(keys=["a"], min_gap_ms=0.0, offset_ms=offset_ms)
+        rec = _Recorder()
+        t = {}
+        orig = ap._press_key
+
+        def spy():
+            t["press"] = _time.perf_counter()
+            orig()
+
+        ap.keyboard = rec
+        ap._press_key = spy
+        ap.load_level(lvl)
+        ap._running = True
+        ap._play_loop()
+        return t["press"] - ap._start_time
+
+    base = _run(0.0)
+    later = _run(60.0)
+    # offset 60ms면 입력이 약 60ms 더 늦게 발생
+    assert later - base >= 0.05
+
+
 def test_play_loop_start_index_skips_earlier_tiles():
     """--start-tile: 지정 인덱스 이전 타일은 누르지 않는다."""
     lvl = LevelData(bpm=120, offset=0)

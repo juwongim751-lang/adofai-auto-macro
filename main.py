@@ -38,12 +38,13 @@ class MacroController:
         level: LevelData,
         keys="q,w,e,r,t,y,u,i,o,p",
         start_delay: float = 0.0,
-        countdown: int = 3,
+        countdown: int = 1,
         show_overlay: bool = True,
         toggle_key: str = "f6",
         quit_key: str = "f8",
         start_tile: int = 0,
         min_gap_ms: float = 16.0,
+        offset_ms: float = 0.0,
     ):
         self.level = level
         self.start_delay = start_delay
@@ -51,7 +52,7 @@ class MacroController:
         self.toggle_key = toggle_key
         self.quit_key = quit_key
 
-        self.player = AutoPlayer(keys=keys, min_gap_ms=min_gap_ms)
+        self.player = AutoPlayer(keys=keys, min_gap_ms=min_gap_ms, offset_ms=offset_ms)
         self.player.set_start_index(start_tile)
         self.player.load_level(level)
         self.player.set_progress_callback(self._on_progress)
@@ -222,8 +223,15 @@ def main():
     parser.add_argument(
         "--countdown",
         type=int,
-        default=3,
-        help="시작 카운트다운 초 (기본: 3)",
+        default=1,
+        help="시작 카운트다운 초 (기본: 1)",
+    )
+    parser.add_argument(
+        "--offset",
+        type=float,
+        default=0.0,
+        help="전역 타이밍 보정 (ms, 기본 0). 양수=더 늦게 누름, 음수=더 일찍 누름. "
+             "전체가 밀린다면 이걸로 맞춤 (예: --offset -20 또는 --offset 20)",
     )
     parser.add_argument(
         "--no-overlay",
@@ -349,6 +357,7 @@ def main():
         quit_key=args.quit_key,
         start_tile=args.start_tile,
         min_gap_ms=min_gap_ms,
+        offset_ms=args.offset,
     )
     controller.run()
 

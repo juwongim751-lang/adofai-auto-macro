@@ -29,7 +29,7 @@ SPECIAL_KEY_NAMES = {
 class AutoPlayer:
     """.adofai 레벨의 타일 타이밍에 맞춰 자동으로 키를 입력하는 클래스."""
 
-    def __init__(self, keys="space", min_gap_ms: float = 16.0):
+    def __init__(self, keys="space", min_gap_ms: float = 16.0, offset_ms: float = 0.0):
         """
         Args:
             keys: 입력할 키. 단일 문자열("space") 또는 여러 키 목록
@@ -55,6 +55,7 @@ class AutoPlayer:
         self._start_index: int = 0  # 이 타일부터 재생 (구간 연습용)
         self._min_press_gap_s: float = max(0.0, min_gap_ms) / 1000.0
         self._last_press_perf: float = float("-inf")  # 마지막 입력 시각(동타 분산용)
+        self._offset_s: float = offset_ms / 1000.0  # 전역 타이밍 보정(+늦게/-일찍)
 
     def set_start_index(self, idx: int):
         """재생을 시작할 타일 인덱스를 설정합니다 (구간 연습용)."""
@@ -154,8 +155,8 @@ class AutoPlayer:
             if i <= start_i:
                 continue
 
-            # 목표 시간까지 대기
-            target_perf = self._start_time + (tile.time_ms / 1000.0)
+            # 목표 시간까지 대기 (offset으로 전체를 앞/뒤로 보정)
+            target_perf = self._start_time + (tile.time_ms / 1000.0) + self._offset_s
             self._wait_precise(target_perf)
 
             if not self._running:
