@@ -89,6 +89,55 @@ def test_play_loop_skips_auto_tiles():
     assert rec.pressed == ["a", "b"]
 
 
+def test_play_loop_simultaneous_tiles_all_pressed():
+    """동타(같은 시각 타일)도 전부 입력되어야 한다 (한 번만 인식되는 문제 방지)."""
+    lvl = LevelData(bpm=120, offset=0)
+    # 타일 1,2,3이 모두 같은 시각(0ms)에 몰린 '동타' 구간
+    lvl.tiles = [
+        TileHit(index=0, time_ms=0, bpm=120, angle=0),
+        TileHit(index=1, time_ms=0, bpm=120, angle=180),
+        TileHit(index=2, time_ms=0, bpm=120, angle=180),
+        TileHit(index=3, time_ms=0, bpm=120, angle=180),
+    ]
+    ap = AutoPlayer(keys=["a", "b", "c", "d"], min_gap_ms=5.0)
+    rec = _Recorder()
+    ap.keyboard = rec
+    ap.load_level(lvl)
+    ap._running = True
+    ap._play_loop()
+    # 세 동타 타일 모두 서로 다른 키로 입력됨 (하나도 누락 안 됨)
+    assert rec.pressed == ["a", "b", "c"]
+
+
+def test_min_gap_spaces_out_presses():
+    """min_gap 설정 시 연속 입력이 최소 간격만큼 떨어져 발생한다 (실시간 측정)."""
+    import time as _time
+
+    lvl = LevelData(bpm=120, offset=0)
+    lvl.tiles = [
+        TileHit(index=0, time_ms=0, bpm=120, angle=0),
+        TileHit(index=1, time_ms=0, bpm=120, angle=180),
+        TileHit(index=2, time_ms=0, bpm=120, angle=180),
+    ]
+    ap = AutoPlayer(keys=["a", "b"], min_gap_ms=20.0)
+    press_times = []
+    rec = _Recorder()
+    orig_press = ap._press_key
+
+    def spy():
+        press_times.append(_time.perf_counter())
+        orig_press()
+
+    ap.keyboard = rec
+    ap._press_key = spy
+    ap.load_level(lvl)
+    ap._running = True
+    ap._play_loop()
+    assert len(press_times) == 2
+    # 두 입력은 최소 20ms(0.02s) 이상 벌어져야 한다 (약간의 오차 허용)
+    assert press_times[1] - press_times[0] >= 0.018
+
+
 def test_play_loop_start_index_skips_earlier_tiles():
     """--start-tile: 지정 인덱스 이전 타일은 누르지 않는다."""
     lvl = LevelData(bpm=120, offset=0)

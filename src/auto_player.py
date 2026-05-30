@@ -29,12 +29,16 @@ SPECIAL_KEY_NAMES = {
 class AutoPlayer:
     """.adofai 레벨의 타일 타이밍에 맞춰 자동으로 키를 입력하는 클래스."""
 
-    def __init__(self, keys="space"):
+    def __init__(self, keys="space", min_gap_ms: float = 16.0):
         """
         Args:
             keys: 입력할 키. 단일 문자열("space") 또는 여러 키 목록
                   (["w", "f", "o", "j"]). 여러 개면 타일마다 번갈아 눌러
                   같은 키 연타를 피한다 (게임의 채터 블로커 회피).
+            min_gap_ms: 연속 입력 사이의 최소 간격(ms). 같은 시각에 몰린
+                  타일(동타)을 같은 렌더 프레임에 같이 누르면 게임이 한 번만
+                  인식하므로, 최소 이 간격만큼 벌려 각 입력이 별도 프레임에
+                  들어가게 한다 (기본 16ms ≈ 60fps 한 프레임).
         """
         self.keyboard = None  # 첫 입력 시 지연 생성
         self.keys = self._normalize_keys(keys)
@@ -49,6 +53,8 @@ class AutoPlayer:
         self._held_key = None  # 롱노트로 누른 채 유지 중인 키
         self._held_release_perf: float | None = None  # 떼야 하는 perf 시각
         self._start_index: int = 0  # 이 타일부터 재생 (구간 연습용)
+        self._min_press_gap_s: float = max(0.0, min_gap_ms) / 1000.0
+        self._last_press_perf: float = float("-inf")  # 마지막 입력 시각(동타 분산용)
 
     def set_start_index(self, idx: int):
         """재생을 시작할 타일 인덱스를 설정합니다 (구간 연습용)."""
@@ -167,6 +173,15 @@ class AutoPlayer:
             if getattr(tile, "hold_covered", False):
                 continue
 
+            # 동타(같은 시각에 몰린 타일) 분산: 직전 입력과 최소 간격을 둬서
+            # 두 입력이 같은 렌더 프레임에 들어가 한 번만 인식되는 것을 방지한다.
+            if self._min_press_gap_s > 0:
+                min_perf = self._last_press_perf + self._min_press_gap_s
+                if min_perf > time.perf_counter():
+                    self._wait_precise(min_perf)
+                    if not self._running:
+                        break
+
             # 키 입력
             hold_ms = getattr(tile, "hold_ms", 0.0)
             if hold_ms and hold_ms > 0:
@@ -176,6 +191,8 @@ class AutoPlayer:
                 self._held_release_perf = self._start_time + ((tile.time_ms + hold_ms) / 1000.0)
             else:
                 self._press_key()
+
+            self._last_press_perf = time.perf_counter()
 
             # 진행 상황 콜백
             if self._progress_callback:
@@ -198,6 +215,7 @@ class AutoPlayer:
         self._running = True
         self._current_tile = 0
         self._key_idx = 0
+        self._last_press_perf = float("-inf")
         self._thread = threading.Thread(target=self._play_loop, daemon=True)
         self._thread.start()
 

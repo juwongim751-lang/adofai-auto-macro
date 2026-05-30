@@ -43,6 +43,7 @@ class MacroController:
         toggle_key: str = "f6",
         quit_key: str = "f8",
         start_tile: int = 0,
+        min_gap_ms: float = 16.0,
     ):
         self.level = level
         self.start_delay = start_delay
@@ -50,7 +51,7 @@ class MacroController:
         self.toggle_key = toggle_key
         self.quit_key = quit_key
 
-        self.player = AutoPlayer(keys=keys)
+        self.player = AutoPlayer(keys=keys, min_gap_ms=min_gap_ms)
         self.player.set_start_index(start_tile)
         self.player.load_level(level)
         self.player.set_progress_callback(self._on_progress)
@@ -211,6 +212,14 @@ def main():
         help="시작 딜레이 (ms, 기본: 0)",
     )
     parser.add_argument(
+        "--min-gap",
+        type=float,
+        default=16.0,
+        help="연속 입력 최소 간격 (ms, 기본: 16). 같은 시각에 몰린 타일(동타)을 "
+             "별도 프레임으로 벌려 게임이 모두 인식하게 함. 144Hz 등 고주사율이면 "
+             "8~10으로 줄여도 됨",
+    )
+    parser.add_argument(
         "--countdown",
         type=int,
         default=3,
@@ -325,6 +334,7 @@ def main():
         toggle_key=args.toggle_key,
         quit_key=args.quit_key,
         start_tile=args.start_tile,
+        min_gap_ms=args.min_gap,
     )
     controller.run()
 
